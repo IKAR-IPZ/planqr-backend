@@ -6,12 +6,12 @@ const options = {
         info: {
             title: 'PlanQR API',
             version: '1.0.0',
-            description: 'Dokumentacja API do projektu PlanQR',
+            description: 'API docs for PlanQR project',
         },
         servers: [
             {
                 url: 'http://localhost:9099',
-                description: 'Serwer deweloperski',
+                description: 'Dev server',
             },
         ],
     },

@@ -7,15 +7,29 @@ const router = Router();
  * @swagger
  * /api/schedule:
  *   get:
- *     summary: Pobiera plan zajęć
- *     tags: [Plan]
+ *     summary: Retrieves the schedule
+ *     tags: [Schedule]
  *     parameters:
  *       - in: query
  *         name: id
  *         required: true
  *         schema:
  *           type: string
- *         example: WI-123
+ *         description: >
+ *           The value depends on the selected search type (`kind`):
+ *            - **room** – e.g., "WI WI2- 126"
+ *            - **worker** – e.g., "Śliwiński Grzegorz"
+ *            - **student** – e.g., "55857" (student ID number)
+ *         examples:
+ *           room:
+ *             summary: Example room
+ *             value: WI WI2- 126
+ *           worker:
+ *             summary: Example instructor
+ *             value: Śliwiński Grzegorz
+ *           student:
+ *             summary: Example student ID
+ *             value: "55857"
  *       - in: query
  *         name: kind
  *         schema:
@@ -26,9 +40,9 @@ const router = Router();
  *       200:
  *         description: OK
  *       400:
- *         description: Brak parametru id
+ *         description: Missing 'id' parameter
  *       500:
- *         description: Błąd serwera
+ *         description: Server error
  */
 router.get('/', getPlan);
 

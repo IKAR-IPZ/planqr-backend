@@ -13,9 +13,14 @@ const port = process.env.PORT;
 app.use(cors());
 app.use(express.json());
 
-app.use('/',swaggerUi.serve, swaggerUi.setup(specs));
+app.use('/api/docs',swaggerUi.serve, swaggerUi.setup(specs));
 
 app.use('/api/schedule',scheduleRoutes)
+
+app.get('/', (req,res)=>{
+    res.redirect(`/api/docs`);
+    }
+)
 
 app.listen(port, () => {
 
