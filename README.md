@@ -23,6 +23,7 @@ Aby uruchomić projekt lokalnie, potrzebujesz:
 *   **Node.js**: Wersja 18 lub nowsza.
 *   **PostgreSQL**: Baza danych (lokalna instancja lub Docker).
 *   **Dostęp do sieci ZUT**: Wymagany do działania logowania LDAP (VPN lub sieć uczelniana).
+*   **Port 2137**: Musi być wolny na maszynie hosta (używany przez bazę danych w trybie `host network`).
 
 ## 🚀 Instalacja
 
@@ -43,6 +44,12 @@ Aby uruchomić projekt lokalnie, potrzebujesz:
     npx prisma db push
     ```
 
+4.  **Uruchom Docker (Baza Danych):**
+    Projekt używa Docker Compose z trybem sieciowym `host` dla bazy danych.
+    ```bash
+    docker-compose up -d
+    ```
+
 ## ⚙️ Konfiguracja
 
 Utwórz plik `.env` w głównym katalogu projektu. Możesz skopiować przykładowy plik `.env.example`:
@@ -58,7 +65,7 @@ cp .env.example .env
 PORT=9099
 
 # Baza danych
-DATABASE_URL="postgresql://UZYTKOWNIK:HASLO@localhost:5432/NAZWA_BAZY?schema=public"
+DATABASE_URL="postgresql://admin:admin123@localhost:2137/planqr_db?schema=public"
 
 # LDAP ZUT
 LDAP_URL="ldap://ldap.zut.edu.pl"
