@@ -46,7 +46,7 @@ export class DeviceListController {
     // PUT /api/devices/{id}
     static async updateDevice(req: Request, res: Response) {
         const id = parseInt(req.params.id);
-        const { id: bodyId, ...data } = req.body; // C# checks id == updatedDevice.id
+        const { id: bodyId, ...data } = req.body;
 
         if (bodyId && bodyId !== id) {
             res.sendStatus(400);
@@ -54,13 +54,24 @@ export class DeviceListController {
         }
 
         try {
+            // Check if we are activating a device
+            if (data.deviceName && data.deviceClassroom) {
+                const current = await prisma.deviceList.findUnique({ where: { id } });
+                if (current && current.status === 'PENDING') {
+                    // Generate URL/Secret
+                    const urlSource = `${data.deviceName}_${data.deviceClassroom.toUpperCase()}`;
+                    data.deviceURL = Buffer.from(urlSource).toString('base64');
+                    data.status = 'ACTIVE';
+                    data.deviceClassroom = data.deviceClassroom.toUpperCase(); // Ensure uppercase
+                }
+            }
+
             await prisma.deviceList.update({
                 where: { id },
                 data
             });
             res.sendStatus(204);
         } catch (e) {
-            // Check if not found logic
             const exists = await prisma.deviceList.findUnique({ where: { id } });
             if (!exists) {
                 res.sendStatus(404);
