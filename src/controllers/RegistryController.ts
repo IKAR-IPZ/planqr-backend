@@ -18,6 +18,18 @@ export class RegistryController {
         });
 
         if (!device) {
+            // Extract Metadata
+            const ipAddress = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress;
+            const userAgent = req.headers['user-agent'];
+            let deviceModel = null;
+
+            if (userAgent) {
+                const match = userAgent.match(/\((.*?)\)/);
+                if (match && match[1]) {
+                    deviceModel = match[1];
+                }
+            }
+
             // New device, create as PENDING
             device = await prisma.deviceList.create({
                 data: {
@@ -26,14 +38,33 @@ export class RegistryController {
                     deviceName: null,
                     deviceClassroom: null,
                     deviceURL: null,
-                    lastSeen: new Date()
+                    lastSeen: new Date(),
+                    ipAddress,
+                    userAgent,
+                    deviceModel
                 }
             });
         } else {
-            // Update lastSeen for existing device
+            // Update lastSeen and metadata for existing device
+            const ipAddress = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress;
+            const userAgent = req.headers['user-agent'];
+            let deviceModel = device.deviceModel; // Keep existing if not found? Or update? Let's update.
+
+            if (userAgent) {
+                const match = userAgent.match(/\((.*?)\)/);
+                if (match && match[1]) {
+                    deviceModel = match[1];
+                }
+            }
+
             await prisma.deviceList.update({
                 where: { deviceId },
-                data: { lastSeen: new Date() }
+                data: {
+                    lastSeen: new Date(),
+                    ipAddress,
+                    userAgent,
+                    deviceModel
+                }
             });
         }
 

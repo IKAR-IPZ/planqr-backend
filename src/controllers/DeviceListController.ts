@@ -24,17 +24,42 @@ export class DeviceListController {
 
     // POST /api/devices
     static async createDevice(req: Request, res: Response) {
-        const { deviceName, deviceClassroom } = req.body;
+        const { deviceName, deviceClassroom, deviceModel, macAddress, deviceId } = req.body;
 
         // Logic from C#: $"{dto.deviceName}_{dto.deviceClassroom.ToUpper()}"
         const urlSource = `${deviceName}_${deviceClassroom.toUpperCase()}`;
         const deviceURL = Buffer.from(urlSource).toString('base64');
 
+        // Extract Metadata
+        const ipAddress = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress;
+        const userAgent = req.headers['user-agent'];
+
+        console.log("DEBUG: createDevice called");
+        console.log("Headers:", JSON.stringify(req.headers, null, 2));
+        console.log("Body:", JSON.stringify(req.body, null, 2));
+        console.log("Extracted IP:", ipAddress);
+        console.log("Extracted UA:", userAgent);
+
+        // Fallback: try to extract model from User-Agent if not provided
+        let finalDeviceModel = deviceModel;
+        if (!finalDeviceModel && userAgent) {
+            // Simple regex to catch Android model in parens, e.g. (Linux; Android 10; SM-A202F)
+            const match = userAgent.match(/\((.*?)\)/);
+            if (match && match[1]) {
+                finalDeviceModel = match[1];
+            }
+        }
+
         const device = await prisma.deviceList.create({
             data: {
+                deviceId,
                 deviceName,
                 deviceClassroom: deviceClassroom.toUpperCase(),
-                deviceURL
+                deviceURL,
+                deviceModel: finalDeviceModel,
+                macAddress,
+                ipAddress,
+                userAgent
             }
         });
 

@@ -11,6 +11,11 @@ import deviceRoutes from "./routes/deviceRoutes";
 import registryRoutes from "./routes/registryRoutes";
 import lessonRoutes from "./routes/lessonRoutes";
 import cookieParser from "cookie-parser";
+import https from "https";
+import fs from "fs";
+import path from "path";
+
+
 
 dotenv.config();
 
@@ -65,7 +70,27 @@ const startCleanupJob = () => {
 
 startCleanupJob();
 
-app.listen(port, () => {
-    console.log(`[Server]: Server is running at http://localhost:${port}`);
-    console.log(`[Server]: Swagger docs at http://localhost:${port}/api/docs`);
-})
+
+
+const startServer = () => {
+    try {
+        const certPath = path.join(__dirname, '../../certs');
+        const options = {
+            key: fs.readFileSync(path.join(certPath, 'cert.key')),
+            cert: fs.readFileSync(path.join(certPath, 'cert.pem')),
+        };
+
+        const host = process.env.HOST || 'localhost';
+
+        https.createServer(options, app).listen(port, () => {
+            console.log(`[Server]: Secure Server is running at https://${host}:${port}`);
+            console.log(`[Server]: Swagger docs at https://${host}:${port}/api/docs`);
+        });
+    } catch (error) {
+        console.error('[Server]: Failed to start HTTPS server:', error);
+        // Fallback or exit? For now let's just log and exit if certs are missing
+        process.exit(1);
+    }
+}
+
+startServer();
