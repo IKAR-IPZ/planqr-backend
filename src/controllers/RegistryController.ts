@@ -25,8 +25,15 @@ export class RegistryController {
                     status: 'PENDING',
                     deviceName: null,
                     deviceClassroom: null,
-                    deviceURL: null
+                    deviceURL: null,
+                    lastSeen: new Date()
                 }
+            });
+        } else {
+            // Update lastSeen for existing device
+            await prisma.deviceList.update({
+                where: { deviceId },
+                data: { lastSeen: new Date() }
             });
         }
 
@@ -48,6 +55,13 @@ export class RegistryController {
         const device = await prisma.deviceList.findUnique({
             where: { deviceId }
         });
+
+        if (device) {
+            await prisma.deviceList.update({
+                where: { deviceId },
+                data: { lastSeen: new Date() }
+            });
+        }
 
         if (!device) {
             return res.status(404).json({ message: "Device not found" });

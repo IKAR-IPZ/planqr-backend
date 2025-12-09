@@ -1,4 +1,5 @@
 import express from "express";
+import { PrismaClient } from "@prisma/client";
 import dotenv from "dotenv";
 import cors from "cors";
 import swaggerUi from "swagger-ui-express";
@@ -39,6 +40,30 @@ app.get('/', (req, res) => {
     res.redirect(`/api/docs`);
 }
 )
+
+// Cleanup job for stale PENDING devices
+const startCleanupJob = () => {
+    setInterval(async () => {
+        try {
+            const thirtySecondsAgo = new Date(Date.now() - 30 * 1000);
+            const { count } = await new PrismaClient().deviceList.deleteMany({
+                where: {
+                    status: 'PENDING',
+                    lastSeen: {
+                        lt: thirtySecondsAgo
+                    }
+                }
+            });
+            if (count > 0) {
+                console.log(`[Cleanup]: Removed ${count} stale pending device(s).`);
+            }
+        } catch (error) {
+            console.error('[Cleanup]: Error removing stale devices:', error);
+        }
+    }, 10000); // Run every 10 seconds
+};
+
+startCleanupJob();
 
 app.listen(port, () => {
     console.log(`[Server]: Server is running at http://localhost:${port}`);

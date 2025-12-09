@@ -37,4 +37,5 @@ model DeviceList {
   deviceURL       String?  
   deviceId        String   @unique // The Client UUID
   status          String   @default("PENDING") // PENDING, ACTIVE
+  lastSeen        DateTime @default(now())
 }
