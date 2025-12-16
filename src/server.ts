@@ -73,24 +73,31 @@ startCleanupJob();
 
 
 const startServer = () => {
-    try {
-        const certPath = path.join(__dirname, '../../certs');
-        const options = {
-            key: fs.readFileSync(path.join(certPath, 'cert.key')),
-            cert: fs.readFileSync(path.join(certPath, 'cert.pem')),
-        };
+    const disableHttps = process.env.DISABLE_HTTPS === 'true';
+    const host = process.env.HOST || 'localhost';
 
-        const host = process.env.HOST || 'localhost';
+    if (!disableHttps) {
+        try {
+            const certPath = path.join(__dirname, '../../certs');
+            const options = {
+                key: fs.readFileSync(path.join(certPath, 'cert.key')),
+                cert: fs.readFileSync(path.join(certPath, 'cert.pem')),
+            };
 
-        https.createServer(options, app).listen(port, () => {
-            console.log(`[Server]: Secure Server is running at https://${host}:${port}`);
-            console.log(`[Server]: Swagger docs at https://${host}:${port}/api/docs`);
-        });
-    } catch (error) {
-        console.error('[Server]: Failed to start HTTPS server:', error);
-        // Fallback or exit? For now let's just log and exit if certs are missing
-        process.exit(1);
+            https.createServer(options, app).listen(port, () => {
+                console.log(`[Server]: Secure Server is running at https://${host}:${port}`);
+                console.log(`[Server]: Swagger docs at https://${host}:${port}/api/docs`);
+            });
+            return;
+        } catch (error) {
+            console.error('[Server]: Failed to start HTTPS server, falling back to HTTP:', error);
+        }
     }
+
+    app.listen(port, () => {
+        console.log(`[Server]: HTTP Server is running at http://${host}:${port}`);
+        console.log(`[Server]: Swagger docs at http://${host}:${port}/api/docs`);
+    });
 }
 
 startServer();
