@@ -23,7 +23,7 @@ Aby uruchomić projekt lokalnie, potrzebujesz:
 *   **Node.js**: Wersja 18 lub nowsza.
 *   **PostgreSQL**: Baza danych (lokalna instancja lub Docker).
 *   **Dostęp do sieci ZUT**: Wymagany do działania logowania LDAP (VPN lub sieć uczelniana).
-*   **Port 2137**: Musi być wolny na maszynie hosta (używany przez bazę danych w trybie `host network`).
+*   **Port 5432**: Musi być wolny na maszynie hosta (standardowy port PostgreSQL).
 
 ## 🚀 Instalacja
 
@@ -44,28 +44,68 @@ Aby uruchomić projekt lokalnie, potrzebujesz:
     npx prisma db push
     ```
 
-4.  **Uruchom Docker (Baza Danych):**
-    Projekt używa Docker Compose z trybem sieciowym `host` dla bazy danych.
+    **Zalecana metoda:** Projekt jest skonfigurowany jako część większego systemu (Docker Compose w katalogu nadrzędnym).
+    
+    W katalogu głównym całego projektu (jeden poziom wyżej):
     ```bash
     docker-compose up -d
     ```
+    
+    > **Uwaga:** Ta komenda uruchomi bazę danych Postgres (port 5432) oraz Backend (port 9099). Upewnij się, że porty są wolne.
+    > Wymagane jest również wygenerowanie certyfikatów SSL dla Frontendu (szczegóły w dokumentacji Frontendu).
 
 ## ⚙️ Konfiguracja
 
-Utwórz plik `.env` w głównym katalogu projektu. Możesz skopiować przykładowy plik `.env.example`:
+## ⚙️ Konfiguracja
 
-```bash
-cp .env.example .env
-```
+W tej konfiguracji (Docker), zmienne środowiskowe są zdefiniowane bezpośrednio w pliku `docker-compose.yml`.
 
-**Wymagana zawartość `.env`:**
+**Domyślne ustawienia (zdefiniowane w `docker-compose.yml`):**
 
 ```properties
 # Serwer
 PORT=9099
 
 # Baza danych
-DATABASE_URL="postgresql://admin:admin123@localhost:2137/planqr_db?schema=public"
+DATABASE_URL="postgresql://uzytkownik:haslo@127.0.0.1:1234/db_name?schema=public"
+```
+
+> **Ważne:** Aby zmienić hasła (zalecane na produkcji), edytuj sekcję `environment` w pliku `docker-compose.yml` dla serwisów `db` oraz `backend`. Pamiętaj, aby wartości były spójne w obu miejscach.
+
+### Przykładowa konfiguracja (`docker-compose.yml`)
+
+```yaml
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    network_mode: "host"
+    environment:
+      POSTGRES_USER: uzytkownik
+      POSTGRES_PASSWORD: haslo
+      POSTGRES_DB: planqr_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  backend:
+    build:
+      context: ./planqr-backend
+    network_mode: "host"
+    environment:
+      - DISABLE_HTTPS=true
+      - PORT=9099
+      - DATABASE_URL=postgresql://uzytkownik:haslo@localhost:5432/planqr_db?schema=public
+      - LDAP_URL=ldap://ldap.zut.edu.pl
+      - LDAP_DN=uid=%s,cn=users,cn=accounts,dc=zut,dc=edu,dc=pl
+    volumes:
+      - ./certs:/certs:ro
+    depends_on:
+      - db
+
+volumes:
+  postgres_data:
+```
 
 # LDAP ZUT
 LDAP_URL="ldap://ldap.zut.edu.pl"
