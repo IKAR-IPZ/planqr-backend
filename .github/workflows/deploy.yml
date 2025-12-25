@@ -1,0 +1,20 @@
+name: Deploy Backend
+on:
+  push:
+    branches: [ "develop", "main" ]
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    steps:
+      - name: Pobierz kod
+        uses: actions/checkout@v4
+
+      - name: Stwórz plik .env z sekretów
+        run: echo "${{ secrets.ENV_FILE }}" > .env
+
+      - name: Uruchom Docker Compose
+        run: |
+          docker compose down
+          docker compose up -d --build
+          docker image prune -f

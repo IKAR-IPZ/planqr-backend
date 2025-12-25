@@ -1,0 +1,16 @@
+version: '3.8'
+services:
+  backend:
+    build:
+      context: .
+    network_mode: "host"
+    environment:
+      PORT: "${PORT}"
+      DATABASE_URL: "${DATABASE_URL}"
+      LDAP_URL: "${LDAP_URL}"
+      LDAP_DN: "${LDAP_DN}"
+      DISABLE_HTTPS: "${DISABLE_HTTPS}"
+    volumes:
+      - /home/user/planqr-secrets/certs:/certs:ro
+    command: sh -c "npx prisma db push && npm start"
+    restart: always
