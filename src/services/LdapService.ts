@@ -1,12 +1,13 @@
 import ldap from 'ldapjs';
+import { env } from '../config/env';
 
 export class LdapService {
     private readonly ldapUrl: string;
     private readonly ldapDnPattern: string;
 
     constructor() {
-        this.ldapUrl = process.env.LDAP_URL || 'ldap://ldap.zut.edu.pl';
-        this.ldapDnPattern = process.env.LDAP_DN || 'uid=%s,cn=users,cn=accounts,dc=zut,dc=edu,dc=pl';
+        this.ldapUrl = env.LDAP_URL;
+        this.ldapDnPattern = env.LDAP_DN;
     }
 
     /**

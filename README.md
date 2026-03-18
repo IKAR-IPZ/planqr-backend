@@ -48,75 +48,39 @@ Aby uruchomić projekt lokalnie, potrzebujesz:
     
     W katalogu głównym całego projektu (jeden poziom wyżej):
     ```bash
-    docker-compose up -d
+    cp .env.example .env
+    docker compose up -d --build
     ```
     
-    > **Uwaga:** Ta komenda uruchomi bazę danych Postgres (port 5432) oraz Backend (port 9099). Upewnij się, że porty są wolne.
+    > **Uwaga:** Backend korzysta teraz z jednego, wspólnego pliku `.env` w katalogu głównym projektu.
     > Wymagane jest również wygenerowanie certyfikatów SSL dla Frontendu (szczegóły w dokumentacji Frontendu).
 
 ## ⚙️ Konfiguracja
 
-## ⚙️ Konfiguracja
+Źródłem prawdy dla konfiguracji jest teraz rootowy plik `.env` w katalogu głównym projektu.
 
-W tej konfiguracji (Docker), zmienne środowiskowe są zdefiniowane bezpośrednio w pliku `docker-compose.yml`.
+Dostępne szablony:
 
-**Domyślne ustawienia (zdefiniowane w `docker-compose.yml`):**
+- `.env.example`
+- `.env.dev.example`
+- `.env.prod.example`
+
+Backend ładuje ten plik zarówno przy `docker compose`, jak i przy lokalnym `npm run dev`.
+
+Najważniejsze zmienne backendu:
 
 ```properties
-# Serwer
+NODE_ENV=development
 PORT=9099
-
-# Baza danych
-DATABASE_URL="postgresql://uzytkownik:haslo@127.0.0.1:1234/db_name?schema=public"
+DISABLE_HTTPS=true
+BACKEND_PUBLIC_URL=http://localhost:9099
+CORS_ORIGIN=https://localhost:3000,http://localhost:3000
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/planqr_db?schema=public
+JWT_SECRET=change-me
+LDAP_URL=ldap://ldap.zut.edu.pl
+LDAP_DN=uid=%s,cn=users,cn=accounts,dc=zut,dc=edu,dc=pl
+ZUT_SCHEDULE_STUDENT_URL=https://plan.zut.edu.pl/schedule_student.php
 ```
-
-> **Ważne:** Aby zmienić hasła (zalecane na produkcji), edytuj sekcję `environment` w pliku `docker-compose.yml` dla serwisów `db` oraz `backend`. Pamiętaj, aby wartości były spójne w obu miejscach.
-
-### Przykładowa konfiguracja (`docker-compose.yml`)
-
-```yaml
-version: '3.8'
-
-services:
-  db:
-    image: postgres:15-alpine
-    network_mode: "host"
-    environment:
-      POSTGRES_USER: uzytkownik
-      POSTGRES_PASSWORD: haslo
-      POSTGRES_DB: planqr_db
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
-  backend:
-    build:
-      context: ./planqr-backend
-    network_mode: "host"
-    environment:
-      - DISABLE_HTTPS=true
-      - PORT=9099
-      - DATABASE_URL=postgresql://uzytkownik:haslo@localhost:5432/planqr_db?schema=public
-      - LDAP_URL=ldap://ldap.zut.edu.pl
-      - LDAP_DN=uid=%s,cn=users,cn=accounts,dc=zut,dc=edu,dc=pl
-    volumes:
-      - ./certs:/certs:ro
-    depends_on:
-      - db
-
-volumes:
-  postgres_data:
-```
-
-# LDAP ZUT
-LDAP_URL="ldap://ldap.zut.edu.pl"
-LDAP_DN="uid=%s,cn=users,cn=accounts,dc=zut,dc=edu,dc=pl"
-
-# Security
-JWT_SECRET="zmien_to_na_trudne_haslo"
-NODE_ENV="development"
-```
-
-> **Uwaga:** Port `9099` jest domyślny dla tego projektu i kompatybilny z frontendem.
 
 ## ▶️ Uruchomienie
 
@@ -140,7 +104,7 @@ npm start
 
 Projekt posiada wbudowaną dokumentację **Swagger UI**. Po uruchomieniu serwera jest ona dostępna pod adresem:
 
-👉 **[http://localhost:9099/api/docs](http://localhost:9099/api/docs)**
+👉 `${BACKEND_PUBLIC_URL}/api/docs`
 
 ### Główne moduły API:
 

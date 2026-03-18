@@ -1,18 +1,16 @@
 import { Request, Response } from 'express';
 import { LdapService } from '../services/LdapService';
+import { env } from '../config/env';
 import jwt from 'jsonwebtoken';
-import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
 const ldapService = new LdapService();
-const JWT_SECRET = process.env.JWT_SECRET || 'supersecret';
 const ISSUER = "PlanQR_Issuer"; // From C# config likely
 const AUDIENCE = "PlanQR_Audience";
 
 export class AuthController {
 
     static async login(req: Request, res: Response) {
-        console.log(`Login request received. NODE_ENV=${process.env.NODE_ENV}, Origin=${req.headers.origin}, Cookies=${JSON.stringify(req.cookies)}`);
+        console.log(`Login request received. NODE_ENV=${env.NODE_ENV}, Origin=${req.headers.origin}, Cookies=${JSON.stringify(req.cookies)}`);
         try {
             const { username, password } = req.body;
 
@@ -36,7 +34,7 @@ export class AuthController {
                         title,
                         jti: Date.now().toString()
                     },
-                    JWT_SECRET,
+                    env.JWT_SECRET,
                     {
                         expiresIn: '24h',
                         issuer: ISSUER,
@@ -46,8 +44,8 @@ export class AuthController {
 
                 res.cookie('jwt', token, {
                     httpOnly: true,
-                    secure: process.env.NODE_ENV === 'production',
-                    sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax'
+                    secure: env.NODE_ENV === 'production',
+                    sameSite: env.NODE_ENV === 'production' ? 'strict' : 'lax'
                 });
 
                 return res.status(200).json({
@@ -76,7 +74,7 @@ export class AuthController {
         if (!token) return res.status(401).json({ message: 'Not logged in' });
 
         try {
-            const decoded = jwt.verify(token, JWT_SECRET) as any;
+            const decoded = jwt.verify(token, env.JWT_SECRET) as any;
             return res.status(200).json({
                 message: 'Logged in',
                 givenName: decoded.givenName,
@@ -94,7 +92,7 @@ export class AuthController {
         if (!token) return res.status(401).json({ message: 'Token is missing' });
 
         try {
-            const decoded = jwt.verify(token, JWT_SECRET) as any;
+            const decoded = jwt.verify(token, env.JWT_SECRET) as any;
             return res.status(200).json({ message: 'Token is valid', username: decoded.sub });
         } catch (e) {
             return res.status(401).json({ message: 'Token has expired' });

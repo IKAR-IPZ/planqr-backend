@@ -1,7 +1,8 @@
 import axios from 'axios';
+import { env } from '../config/env';
 
 export class ZutServices {
-    private readonly BASE_URL = 'https://plan.zut.edu.pl/schedule_student.php';
+    private readonly BASE_URL = env.ZUT_SCHEDULE_STUDENT_URL;
 
     async getSchedule(id: string, kind: string) {
         try {
