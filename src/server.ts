@@ -18,6 +18,8 @@ import path from "path";
 
 const app = express();
 const port = env.PORT;
+const cleanupPrisma = new PrismaClient();
+let cleanupInProgress = false;
 
 app.use(cors({
     origin: env.CORS_ORIGIN,
@@ -46,9 +48,14 @@ app.get('/', (req, res) => {
 // Cleanup job for stale PENDING devices
 const startCleanupJob = () => {
     setInterval(async () => {
+        if (cleanupInProgress) {
+            return;
+        }
+
+        cleanupInProgress = true;
         try {
             const thirtySecondsAgo = new Date(Date.now() - 30 * 1000);
-            const { count } = await new PrismaClient().deviceList.deleteMany({
+            const { count } = await cleanupPrisma.deviceList.deleteMany({
                 where: {
                     status: 'PENDING',
                     lastSeen: {
@@ -61,6 +68,8 @@ const startCleanupJob = () => {
             }
         } catch (error) {
             console.error('[Cleanup]: Error removing stale devices:', error);
+        } finally {
+            cleanupInProgress = false;
         }
     }, 10000); // Run every 10 seconds
 };
