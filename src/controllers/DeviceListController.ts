@@ -26,7 +26,7 @@ export class DeviceListController {
     static async createDevice(req: Request, res: Response) {
         const { deviceName, deviceClassroom, deviceModel, macAddress, deviceId } = req.body;
 
-        // Logic from C#: $"{dto.deviceName}_{dto.deviceClassroom.ToUpper()}"
+        // Generate device URL from name and classroom
         const urlSource = `${deviceName}_${deviceClassroom.toUpperCase()}`;
         const deviceURL = Buffer.from(urlSource).toString('base64');
 
@@ -64,7 +64,7 @@ export class DeviceListController {
         });
 
         // 201 Created
-        // Matches C# CreatedAtAction structure roughly
+        // Successfully created
         res.status(201).json(device);
     }
 
@@ -113,9 +113,7 @@ export class DeviceListController {
             await prisma.deviceList.delete({ where: { id } });
             res.sendStatus(204);
         } catch (e) {
-            // Prisma throws if not found? No, delete throws only if record doesn't exist?
-            // Actually, findUnique then delete is safer to match C# logic of 404
-            // But delete handles it with P2025 error if not found.
+            // Handle error if device doesn't exist
             res.sendStatus(404);
             return;
         }

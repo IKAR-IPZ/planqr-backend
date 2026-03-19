@@ -6,7 +6,7 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 const ldapService = new LdapService();
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecret';
-const ISSUER = "PlanQR_Issuer"; // From C# config likely
+const ISSUER = "PlanQR_Issuer";
 const AUDIENCE = "PlanQR_Audience";
 
 export class AuthController {
@@ -20,10 +20,7 @@ export class AuthController {
                 return res.status(400).json({ message: 'Invalid request' });
             }
 
-            // In C#: var (isAuthenticated, givenName, surname, title) = _ldapService.Authenticate...
-            // We need to update LdapService to return these details, or mock them for now.
-            // Assuming LdapService returns boolean for now, we'll fetch details if true.
-
+            // Authenticate user via LDAP service
             const { isAuthenticated, givenName = '', surname = '', title = '' } = await ldapService.authenticate(username, password as string);
 
             if (isAuthenticated) {
@@ -61,7 +58,6 @@ export class AuthController {
             }
         } catch (error) {
             console.error('Login error:', error);
-            // C# returns Unauthorized on almost everything here? No, C# returns 500 equivalent usually for crashes, but 401 for bad creds
             return res.status(500).json({ message: 'Internal server error' });
         }
     }

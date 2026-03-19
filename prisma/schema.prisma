@@ -7,7 +7,7 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Keep User for now if we want to track logins, but C# didn't strictly require it for messages
+// User model for tracking logins and roles
 model User {
   id        String   @id @default(uuid())
   username  String   @unique 
@@ -17,7 +17,7 @@ model User {
 }
 
 model Message {
-  id          Int      @id @default(autoincrement()) // C# uses int
+  id          Int      @id @default(autoincrement())
   body        String   // Was content
   lecturer    String
   login       String
@@ -28,6 +28,10 @@ model Message {
   
   // Kept from previous but optional now
   validUntil  DateTime? 
+
+  // Room change feature
+  isRoomChange Boolean @default(false)
+  newRoom      String?
 }
 
 model DeviceList {
@@ -44,4 +48,17 @@ model DeviceList {
   deviceModel     String?
   userAgent       String?
   macAddress      String?
+}
+
+model AttendanceLog {
+  id          Int      @id @default(autoincrement())
+  cardId      String   @map("card_id")
+  doorId      String   @map("door_id")
+  scannedAt   DateTime @map("scanned_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  processed   Boolean  @default(false)
+
+  @@unique([cardId, scannedAt], name: "uq_scan")
+  @@index([doorId, scannedAt], name: "idx_door_time")
+  @@map("attendance_logs")
 }

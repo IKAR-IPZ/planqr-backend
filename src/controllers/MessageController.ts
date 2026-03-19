@@ -13,24 +13,24 @@ export class MessageController {
             return;
         }
 
-        // C# CreateMessageCommand: body, lecturer, login, room, lessonId, group, createdAt
+        // Create message record
         try {
+            const parsedLessonId = command.lessonId ? Number(command.lessonId) : 0;
             const message = await prisma.message.create({
                 data: {
                     body: command.body,
-                    lecturer: command.lecturer,
-                    login: command.login,
-                    room: command.room,
-                    lessonId: command.lessonId,
-                    group: command.group,
-                    createdAt: command.createdAt ? new Date(command.createdAt) : new Date() // C# converts TZ
+                    lecturer: command.lecturer || 'System',
+                    login: command.login || 'system',
+                    room: command.room || 'Unknown',
+                    lessonId: isNaN(parsedLessonId) ? 0 : parsedLessonId,
+                    group: command.group || 'All',
+                    isRoomChange: command.isRoomChange || false,
+                    newRoom: command.newRoom || null,
+                    createdAt: command.createdAt ? new Date(command.createdAt) : new Date()
                 }
             });
             console.log(`Received message: ${command.body} from ${command.login} for lesson ${command.lessonId}`);
-            // C# returns Ok(result), checking Handler it returns Unit.Value.
-            // We'll return the created message? Or just Ok? 
-            // C# LessonController returns Unit.Value which is usually 200 OK.
-            // Let's return the created message object or just 200.
+            // Return the created message
             res.status(200).json(message);
         } catch (e) {
             console.error(e);
@@ -68,8 +68,6 @@ export class MessageController {
             await prisma.message.delete({ where: { id } });
             res.sendStatus(204);
         } catch (e) {
-            // C# usually returns NoContent even if failing? Or Internal server error.
-            // We'll return 204.
             res.sendStatus(204);
         }
     }

@@ -31,7 +31,7 @@ Backend dla inżynierskiego projektu **PlanQR**. Główne zadania aplikacji to:
 _Obsługa komunikatów/ogłoszeń per dany plan / sala._
 - `GET /api/messages` - Pobiera listę wszystkich wiadomości.
 - `GET /api/messages/:lessonId` - Wiadomości spięte z konkretną lekcją (lessonId z planu).
-- `POST /api/messages` - Tworzenie wiadomości (`body`, `lecturer`, `login`, `room`, `lessonId`, `group`).
+- `POST /api/messages` - Tworzenie wiadomości (`body`, `lecturer`, `login`, `room`, `lessonId`, `group`, `isRoomChange`, `newRoom`). Obsługuje m.in. priorytetowe komunikaty o zmianie sali (jeśli wysłano `isRoomChange: true`).
 - `DELETE /api/messages/:id` - Usuwanie wiadomości.
 
 ### 4. Lekcje specyficzne (`/api/lesson`) - Starsze / Specyficzne?
@@ -54,7 +54,14 @@ _Endpointy kontrolujące "życie" i rejestrację nowych tabletów przypisywanych
 - `POST /api/registry/handshake` - Akcja inicjująca dla fabrycznie nowego urządzenia. Urządzenie zgłasza się tu i oczekuje akceptacji przez admina.
 - `GET /api/registry/status/:deviceId` - Polling przez urządzenie czekające na akceptację, sprawdzające czy status przeszedł w ACTIVE.
 
+### 7. Obecność / Attendance (`/api/v1/attendance`)
+_Moduł integrujący system Kantech obsługujący zdarzenia z czytników pod salami (np. odbicie legitymacji studenckiej)._
+- `POST /api/v1/attendance/scan` - Przyjmuje odbicie karty (`card_id`, `door_id`, `scanned_at`). Chroniony statycznym tokenem z `.env` (`WORKER_SECRET_TOKEN`). Obsługuje deduplikację po `card_id` + `scanned_at`.
+- `GET /api/v1/attendance` - Pobieranie logów wejść (obsługuje np. filtr `?door_id=X` oraz `?limit=Y`).
+
 ## 🔐 Modele Danych (Prisma)
 - **User** (`id`, `username`, `role`)
-- **Message** (`id`, `body`, `lecturer`, `login`, `room`, `lessonId`, `group`, `validUntil`)
+- **Message** (`id`, `body`, `lecturer`, `login`, `room`, `lessonId`, `group`, `validUntil`, `isRoomChange`, `newRoom`)
 - **DeviceList** (`id`, `deviceName`, `deviceClassroom`, `deviceURL`, `deviceId`, `status`, `lastSeen` + telemetria: `ipAddress`, `deviceModel`, itp.)
+- **AttendanceLog** (`id`, `cardId` (`card_id`), `doorId` (`door_id`), `scannedAt` (`scanned_at`), `createdAt`, `processed`) - Z indeksem dla kombo [doorId, scannedAt] i unikalnością [cardId, scannedAt].
+

@@ -18,7 +18,6 @@ export class LessonController {
     }
 
     // GET /api/Lesson/message/:roomId
-    // Note: Parameter name is roomId in C#, but acts like ID in Details.Query?
     static async getMessage(req: Request, res: Response) {
         const id = parseInt(req.params.roomId);
         try {
@@ -37,7 +36,7 @@ export class LessonController {
     static async clearMessages(req: Request, res: Response) {
         try {
             await prisma.message.deleteMany();
-            res.json({ message: 'All messages cleared' }); // C# returns result, likely Unit.Value or similar
+            res.json({ message: 'All messages cleared' });
         } catch (e) {
             res.status(500).json({ error: 'Failed to clear messages' });
         }
@@ -50,7 +49,6 @@ export class LessonController {
             await prisma.message.delete({ where: { id } });
             res.sendStatus(200);
         } catch (e) {
-            // C# catches KeyNotFoundException
             res.status(404).json({ error: 'Message not found' });
         }
     }

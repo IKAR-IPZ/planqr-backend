@@ -10,6 +10,7 @@ import messageRoutes from "./routes/messageRoutes";
 import deviceRoutes from "./routes/deviceRoutes";
 import registryRoutes from "./routes/registryRoutes";
 import lessonRoutes from "./routes/lessonRoutes";
+import attendanceRoutes from "./routes/attendanceRoutes";
 import cookieParser from "cookie-parser";
 import https from "https";
 import fs from "fs";
@@ -37,8 +38,9 @@ app.use('/api/messages', messageRoutes);
 app.use('/api/devices', deviceRoutes);
 app.use('/api/registry', registryRoutes);
 app.use('/api/Lesson', lessonRoutes);
+app.use('/api/v1/attendance', attendanceRoutes);
 
-// Start background jobs (Optional now as C# doesn't use it the same way)
+// Start background jobs
 // startCleanupJob();
 
 app.get('/', (req, res) => {
