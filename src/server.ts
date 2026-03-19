@@ -78,7 +78,7 @@ const startServer = () => {
 
     if (!disableHttps) {
         try {
-            const certPath = path.join(__dirname, '../../certs');
+            const certPath = path.join(process.cwd(), 'certs');
             const options = {
                 key: fs.readFileSync(path.join(certPath, 'cert.key')),
                 cert: fs.readFileSync(path.join(certPath, 'cert.pem')),
