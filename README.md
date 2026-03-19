@@ -41,8 +41,6 @@ DATABASE_URL="postgresql://admin:admin123@localhost:2137/planqr_db?schema=public
 
 # Ustawienia serwera
 PORT=9099
-JWT_SECRET="tajny_klucz_jwt"
-DISABLE_HTTPS=true
 ```
 
 ## 🐳 Docker
