@@ -8,8 +8,12 @@ export class ZutServices {
             let startStr: string;
             let endStr: string;
 
-            const formatZutDate = (date: Date) =>
-                date.toISOString().split('T')[0] + 'T00:00:00+01:00';
+            const formatZutDate = (date: Date) => {
+                const y = date.getFullYear();
+                const m = String(date.getMonth() + 1).padStart(2, '0');
+                const d = String(date.getDate()).padStart(2, '0');
+                return `${y}-${m}-${d}T00:00:00+01:00`;
+            };
 
             const parseDate = (str: string): Date | null => {
                 // URL decoding converts '+' to ' ' in timezone offset (e.g. "+01:00" → " 01:00")
