@@ -1,8 +1,8 @@
 import express from "express";
 import { PrismaClient } from "@prisma/client";
-import dotenv from "dotenv";
 import cors from "cors";
 import swaggerUi from "swagger-ui-express";
+import { env } from "./config/env";
 import { specs } from "./config/swagger"
 import scheduleRoutes from "./routes/scheduleRoutes";
 import authRoutes from "./routes/authRoutes";
@@ -17,14 +17,13 @@ import fs from "fs";
 import path from "path";
 
 
-
-dotenv.config();
-
 const app = express();
-const port = process.env.PORT;
+const port = env.PORT;
+const cleanupPrisma = new PrismaClient();
+let cleanupInProgress = false;
 
 app.use(cors({
-    origin: true, // Allow all for now, or specify frontend URL
+    origin: env.CORS_ORIGIN,
     credentials: true // Important for cookies!
 }));
 app.use(express.json());
@@ -51,9 +50,14 @@ app.get('/', (req, res) => {
 // Cleanup job for stale PENDING devices
 const startCleanupJob = () => {
     setInterval(async () => {
+        if (cleanupInProgress) {
+            return;
+        }
+
+        cleanupInProgress = true;
         try {
             const thirtySecondsAgo = new Date(Date.now() - 30 * 1000);
-            const { count } = await new PrismaClient().deviceList.deleteMany({
+            const { count } = await cleanupPrisma.deviceList.deleteMany({
                 where: {
                     status: 'PENDING',
                     lastSeen: {
@@ -66,6 +70,8 @@ const startCleanupJob = () => {
             }
         } catch (error) {
             console.error('[Cleanup]: Error removing stale devices:', error);
+        } finally {
+            cleanupInProgress = false;
         }
     }, 10000); // Run every 10 seconds
 };
@@ -75,10 +81,7 @@ startCleanupJob();
 
 
 const startServer = () => {
-    const disableHttps = process.env.DISABLE_HTTPS === 'true';
-    const host = process.env.HOST || 'localhost';
-
-    if (!disableHttps) {
+    if (!env.DISABLE_HTTPS) {
         try {
             const certPath = path.join(process.cwd(), 'certs');
             const options = {
@@ -87,8 +90,8 @@ const startServer = () => {
             };
 
             https.createServer(options, app).listen(port, () => {
-                console.log(`[Server]: Secure Server is running at https://${host}:${port}`);
-                console.log(`[Server]: Swagger docs at https://${host}:${port}/api/docs`);
+                console.log(`[Server]: Secure server is running at ${env.BACKEND_PUBLIC_URL}`);
+                console.log(`[Server]: Swagger docs at ${new URL('/api/docs', env.BACKEND_PUBLIC_URL).toString()}`);
             });
             return;
         } catch (error) {
@@ -97,8 +100,8 @@ const startServer = () => {
     }
 
     app.listen(port, () => {
-        console.log(`[Server]: HTTP Server is running at http://${host}:${port}`);
-        console.log(`[Server]: Swagger docs at http://${host}:${port}/api/docs`);
+        console.log(`[Server]: HTTP server is running at ${env.BACKEND_PUBLIC_URL}`);
+        console.log(`[Server]: Swagger docs at ${new URL('/api/docs', env.BACKEND_PUBLIC_URL).toString()}`);
     });
 }
 
