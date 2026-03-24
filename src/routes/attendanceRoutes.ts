@@ -12,7 +12,7 @@ const router = Router();
 
 /**
  * @swagger
- * /api/v1/attendance/scan:
+ * /api/attendance/scan:
  *   post:
  *     summary: Record a new card scan from a door reader
  *     tags: [Attendance]
@@ -45,7 +45,7 @@ router.post('/scan', AttendanceController.recordScan);
 
 /**
  * @swagger
- * /api/v1/attendance:
+ * /api/attendance:
  *   get:
  *     summary: Get a list of attendance logs
  *     tags: [Attendance]

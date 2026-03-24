@@ -37,7 +37,7 @@ app.use('/api/messages', messageRoutes);
 app.use('/api/devices', deviceRoutes);
 app.use('/api/registry', registryRoutes);
 app.use('/api/Lesson', lessonRoutes);
-app.use('/api/v1/attendance', attendanceRoutes);
+app.use('/api/attendance', attendanceRoutes);
 
 // Start background jobs
 // startCleanupJob();
