@@ -2,11 +2,14 @@ services:
   backend:
     build:
       context: .
-    env_file:
-      - ../.env
-    ports:
-      - "${PORT:-9099}:9099"
+    network_mode: "host"
+    environment:
+      PORT: "${PORT}"
+      DATABASE_URL: "${DATABASE_URL}"
+      LDAP_URL: "${LDAP_URL}"
+      LDAP_DN: "${LDAP_DN}"
+      DISABLE_HTTPS: "${DISABLE_HTTPS}"
     volumes:
-      - ../certs:/certs:ro
+      - /home/user/planqr-secrets/certs:/certs:ro
     command: sh -c "npx prisma db push && npm start"
-    restart: unless-stopped
+    restart: always
