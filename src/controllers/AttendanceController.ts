@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
-import { PrismaClient, Prisma } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
+import { env } from '../config/env';
 
 const prisma = new PrismaClient();
 const attendanceLogClient = (prisma as unknown as {
@@ -33,14 +34,17 @@ export class AttendanceController {
     private static isValidToken(authHeader: string | undefined): boolean {
         if (!authHeader || !authHeader.startsWith('Bearer ')) return false;
         const token = authHeader.split(' ')[1];
-        // Można zapisać WORKER_SECRET_TOKEN w .env
-        const expectedToken = process.env.WORKER_SECRET_TOKEN || 'SECRET_WORKER_TOKEN';
-        return token === expectedToken;
+        return Boolean(env.WORKER_SECRET_TOKEN) && token === env.WORKER_SECRET_TOKEN;
     }
 
     // POST /api/v1/attendance/scan
     static async recordScan(req: Request, res: Response): Promise<void> {
         try {
+            if (!env.WORKER_SECRET_TOKEN) {
+                res.status(503).json({ status: 'error', message: 'Attendance worker token is not configured' });
+                return;
+            }
+
             // 1. Sprawdzenie tokena
             if (!AttendanceController.isValidToken(req.headers.authorization)) {
                 res.status(401).json({ status: 'error', message: 'Unauthorized' });

@@ -16,7 +16,15 @@ export class LdapService {
      * @param password The password
      * @returns Promise<boolean> true if authentication succeeds
      */
-    async authenticate(username: string, password: string): Promise<{ isAuthenticated: boolean, givenName?: string, surname?: string, title?: string }> {
+    async authenticate(username: string, password: string): Promise<{
+        isAuthenticated: boolean;
+        givenName?: string;
+        surname?: string;
+        title?: string;
+        employeeTypes?: string[];
+        affiliations?: string[];
+        memberOf?: string[];
+    }> {
         return new Promise((resolve, reject) => {
             const client = ldap.createClient({
                 url: this.ldapUrl,
@@ -46,7 +54,7 @@ export class LdapService {
                 const searchOptions: ldap.SearchOptions = {
                     scope: 'base',
                     filter: '(objectClass=*)',
-                    attributes: ['givenName', 'sn', 'title', 'cn']
+                    attributes: ['givenName', 'sn', 'title', 'cn', 'employeeType', 'eduPersonAffiliation', 'memberOf']
                 };
 
                 client.search(userDn, searchOptions, (err, res) => {
@@ -61,12 +69,25 @@ export class LdapService {
                     let givenName = '';
                     let surname = '';
                     let title = '';
+                    let employeeTypes: string[] = [];
+                    let affiliations: string[] = [];
+                    let memberOf: string[] = [];
 
                     res.on('searchEntry', (entry) => {
                         const userEntry = (entry as any).object || (entry as any).pojo || {};
+                        const toArray = (value: unknown) =>
+                            Array.isArray(value)
+                                ? value.map((item) => String(item)).filter(Boolean)
+                                : value
+                                    ? [String(value)]
+                                    : [];
+
                         givenName = userEntry.givenName || '';
                         surname = userEntry.sn || '';
                         title = userEntry.title || '';
+                        employeeTypes = toArray(userEntry.employeeType);
+                        affiliations = toArray(userEntry.eduPersonAffiliation);
+                        memberOf = toArray(userEntry.memberOf);
                     });
 
                     res.on('error', (err) => {
@@ -85,7 +106,10 @@ export class LdapService {
                             isAuthenticated: true,
                             givenName,
                             surname,
-                            title
+                            title,
+                            employeeTypes,
+                            affiliations,
+                            memberOf
                         });
                     });
                 });

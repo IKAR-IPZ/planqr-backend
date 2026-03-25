@@ -1,7 +1,9 @@
 import { Router } from 'express';
 import { DeviceListController } from '../controllers/DeviceListController';
+import { requireAdmin } from '../middlewares/authMiddleware';
 
 const router = Router();
+router.use(requireAdmin);
 
 // Specific routes first
 /**
