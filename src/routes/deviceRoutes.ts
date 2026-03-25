@@ -35,6 +35,8 @@ const router = Router();
  *         description: Device not found
  */
 router.get('/validate', DeviceListController.validateRoomAndSecretUrl);
+router.get('/display-settings', DeviceListController.getDisplaySettings);
+router.put('/display-settings', DeviceListController.updateDisplaySettings);
 router.post('/reload-all', DeviceListController.reloadAllTablets);
 router.post('/:id/reload', DeviceListController.reloadDevice);
 

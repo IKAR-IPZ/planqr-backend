@@ -27,7 +27,7 @@ export class MessageController {
                     isRoomChange: command.isRoomChange || false,
                     newRoom: command.newRoom || null,
                     createdAt: command.createdAt ? new Date(command.createdAt) : new Date()
-                }
+                } as any
             });
             console.log(`Received message: ${command.body} from ${command.login} for lesson ${command.lessonId}`);
             // Return the created message

@@ -50,6 +50,17 @@ model DeviceList {
   macAddress      String?
 }
 
+model TabletDisplaySettings {
+  id               Int      @id @default(1)
+  nightModeEnabled Boolean  @default(false) @map("night_mode_enabled")
+  nightModeStart   String   @default("22:00") @map("night_mode_start")
+  nightModeEnd     String   @default("06:00") @map("night_mode_end")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@map("tablet_display_settings")
+}
+
 model AttendanceLog {
   id          Int      @id @default(autoincrement())
   cardId      String   @map("card_id")

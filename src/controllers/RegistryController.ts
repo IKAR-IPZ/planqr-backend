@@ -1,8 +1,21 @@
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { registerTabletStream } from '../services/tabletStreamService';
+import {
+    DEFAULT_TABLET_NIGHT_MODE_SETTINGS,
+    getTabletNightModeSettings
+} from '../services/tabletDisplaySettingsService';
 
 const prisma = new PrismaClient();
+
+const loadNightModeSettings = async () => {
+    try {
+        return await getTabletNightModeSettings(prisma);
+    } catch (error) {
+        console.error('[Registry] Failed to load tablet night mode settings:', error);
+        return DEFAULT_TABLET_NIGHT_MODE_SETTINGS;
+    }
+};
 
 export class RegistryController {
 
@@ -81,13 +94,16 @@ export class RegistryController {
             });
         }
 
+        const nightMode = await loadNightModeSettings();
+
         // Return status
         return res.json({
             status: device.status,
             config: device.status === 'ACTIVE' ? {
                 department: device.deviceClassroom, // Simplified for now, assumming room stores building too or we fix schema later
                 room: device.deviceClassroom,
-                secretUrl: device.deviceURL
+                secretUrl: device.deviceURL,
+                nightMode
             } : null
         });
     }
@@ -111,6 +127,8 @@ export class RegistryController {
             return res.status(404).json({ message: "Device not found" });
         }
 
+        const nightMode = await loadNightModeSettings();
+
         return res.json({
             status: device.status,
             config: device.status === 'ACTIVE' ? {
@@ -118,7 +136,8 @@ export class RegistryController {
                 // We'll need to parse this in frontend or store separately.
                 // For now, returning as is.
                 room: device.deviceClassroom,
-                secretUrl: device.deviceURL
+                secretUrl: device.deviceURL,
+                nightMode
             } : null
         });
     }

@@ -3,6 +3,22 @@ import { PrismaClient, Prisma } from '@prisma/client';
 import { z } from 'zod';
 
 const prisma = new PrismaClient();
+const attendanceLogClient = (prisma as unknown as {
+    attendanceLog: {
+        create: (args: {
+            data: {
+                cardId: string;
+                doorId: string;
+                scannedAt: Date;
+            };
+        }) => Promise<unknown>;
+        findMany: (args: {
+            where: Record<string, string>;
+            orderBy: { scannedAt: 'desc' };
+            take: number;
+        }) => Promise<unknown>;
+    };
+}).attendanceLog;
 
 // Schemat walidacji Zod
 const scanSchema = z.object({
@@ -46,7 +62,7 @@ export class AttendanceController {
 
             // 3. Zapis do bazy (obsługa konfliktu na poziomie unikalności card_id + scanned_at)
             try {
-                await prisma.attendanceLog.create({
+                await attendanceLogClient.create({
                     data: {
                         cardId: card_id,
                         doorId: door_id,
@@ -84,7 +100,7 @@ export class AttendanceController {
                 whereClause.doorId = String(door_id);
             }
 
-            const logs = await prisma.attendanceLog.findMany({
+            const logs = await attendanceLogClient.findMany({
                 where: whereClause,
                 orderBy: { scannedAt: 'desc' },
                 take: Number.isNaN(parsedLimit) ? 100 : parsedLimit,

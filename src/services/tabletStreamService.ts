@@ -1,9 +1,11 @@
 import { Response } from 'express';
+import { TabletNightModeSettings } from './tabletDisplaySettingsService';
 
 export interface TabletDeviceConfig {
     status: string;
     room: string | null;
     secretUrl: string | null;
+    nightMode: TabletNightModeSettings;
 }
 
 export interface TabletCommand {

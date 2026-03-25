@@ -8,28 +8,74 @@ import {
     TabletCommand,
     TabletDeviceConfig
 } from '../services/tabletStreamService';
+import {
+    getTabletNightModeSettings,
+    TabletNightModeSettings,
+    updateTabletNightModeSettings
+} from '../services/tabletDisplaySettingsService';
 
 const prisma = new PrismaClient();
+const NIGHT_MODE_TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
-const toTabletConfig = (device: DeviceList): TabletDeviceConfig => ({
+const toTabletConfig = (
+    device: DeviceList,
+    nightMode: TabletNightModeSettings
+): TabletDeviceConfig => ({
     status: device.status,
     room: device.deviceClassroom,
-    secretUrl: device.deviceURL
+    secretUrl: device.deviceURL,
+    nightMode
 });
+
+const isValidNightModeTime = (value: string) => NIGHT_MODE_TIME_PATTERN.test(value);
+
+const parseNightModeSettingsPayload = (
+    body: Request['body']
+): { settings?: TabletNightModeSettings; error?: string } => {
+    const enabled = typeof body?.enabled === 'boolean' ? body.enabled : null;
+    const startTime = typeof body?.startTime === 'string' ? body.startTime.trim() : '';
+    const endTime = typeof body?.endTime === 'string' ? body.endTime.trim() : '';
+
+    if (enabled === null) {
+        return { error: 'Pole enabled musi być wartością logiczną.' };
+    }
+
+    if (!isValidNightModeTime(startTime) || !isValidNightModeTime(endTime)) {
+        return { error: 'Godziny muszą mieć format HH:MM.' };
+    }
+
+    if (startTime === endTime) {
+        return { error: 'Godzina rozpoczęcia i zakończenia nie mogą być takie same.' };
+    }
+
+    return {
+        settings: {
+            enabled,
+            startTime,
+            endTime
+        }
+    };
+};
 
 const buildDeviceCommand = (
     device: DeviceList,
     reason: string,
-    fallbackType: Extract<TabletCommand['type'], 'reload' | 'registry-reset' | 'config-updated'> = 'config-updated'
+    nightMode: TabletNightModeSettings,
+    options?: {
+        fallbackType?: Extract<TabletCommand['type'], 'reload' | 'registry-reset' | 'config-updated'>;
+        hardReload?: boolean;
+    }
 ): TabletCommand => {
+    const fallbackType = options?.fallbackType ?? 'config-updated';
+    const hardReload = options?.hardReload ?? true;
     const issuedAt = new Date().toISOString();
-    const config = toTabletConfig(device);
+    const config = toTabletConfig(device, nightMode);
 
     if (device.status === 'ACTIVE' && device.deviceClassroom && device.deviceURL) {
         return {
             type: fallbackType === 'registry-reset' ? 'config-updated' : fallbackType,
             issuedAt,
-            hardReload: true,
+            hardReload,
             reason,
             path: buildTabletPath(device.deviceClassroom, device.deviceURL),
             config
@@ -63,6 +109,60 @@ export class DeviceListController {
             return;
         }
         res.json(device);
+    }
+
+    // GET /api/devices/display-settings
+    static async getDisplaySettings(req: Request, res: Response) {
+        try {
+            const nightMode = await getTabletNightModeSettings(prisma);
+            res.json({ nightMode });
+        } catch (error) {
+            console.error('Error fetching display settings:', error);
+            res.status(500).json({
+                message: 'Nie udało się pobrać ustawień trybu nocnego tabletów.'
+            });
+        }
+    }
+
+    // PUT /api/devices/display-settings
+    static async updateDisplaySettings(req: Request, res: Response) {
+        const parsed = parseNightModeSettingsPayload(req.body);
+
+        if (!parsed.settings) {
+            res.status(400).json({ message: parsed.error });
+            return;
+        }
+
+        try {
+            const nightMode = await updateTabletNightModeSettings(prisma, parsed.settings);
+            const activeDevices = await prisma.deviceList.findMany({
+                where: { status: 'ACTIVE' }
+            });
+
+            let delivered = 0;
+            for (const device of activeDevices) {
+                delivered += sendTabletCommandToDevice(
+                    device.deviceId,
+                    buildDeviceCommand(device, 'admin-night-mode-settings-updated', nightMode, {
+                        fallbackType: 'config-updated',
+                        hardReload: false
+                    })
+                );
+            }
+
+            res.status(200).json({
+                message: 'Zapisano ustawienia trybu nocnego tabletów.',
+                nightMode,
+                delivered,
+                connectedClients: getConnectedTabletCount(),
+                updatedDevices: activeDevices.length
+            });
+        } catch (error) {
+            console.error('Error updating display settings:', error);
+            res.status(500).json({
+                message: 'Nie udało się zapisać ustawień trybu nocnego tabletów.'
+            });
+        }
     }
 
     // POST /api/devices
@@ -166,10 +266,14 @@ export class DeviceListController {
                 const reason = current.status === 'PENDING'
                     ? 'device-activated'
                     : 'device-config-updated';
+                const nightMode = await getTabletNightModeSettings(prisma);
 
                 sendTabletCommandToDevice(
                     updatedDevice.deviceId,
-                    buildDeviceCommand(updatedDevice, reason, 'config-updated')
+                    buildDeviceCommand(updatedDevice, reason, nightMode, {
+                        fallbackType: 'config-updated',
+                        hardReload: true
+                    })
                 );
             }
 
@@ -195,6 +299,7 @@ export class DeviceListController {
             }
 
             await prisma.deviceList.delete({ where: { id } });
+            const nightMode = await getTabletNightModeSettings(prisma);
             sendTabletCommandToDevice(
                 current.deviceId,
                 {
@@ -206,7 +311,8 @@ export class DeviceListController {
                     config: {
                         status: 'PENDING',
                         room: null,
-                        secretUrl: null
+                        secretUrl: null,
+                        nightMode
                     }
                 }
             );
@@ -251,10 +357,14 @@ export class DeviceListController {
         const reason = typeof req.body?.reason === 'string'
             ? req.body.reason
             : 'admin-device-reload';
+        const nightMode = await getTabletNightModeSettings(prisma);
 
         const delivered = sendTabletCommandToDevice(
             device.deviceId,
-            buildDeviceCommand(device, reason, 'reload')
+            buildDeviceCommand(device, reason, nightMode, {
+                fallbackType: 'reload',
+                hardReload: true
+            })
         );
 
         res.status(200).json({
