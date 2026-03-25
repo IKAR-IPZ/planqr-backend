@@ -3,6 +3,7 @@ import { RegistryController } from '../controllers/RegistryController';
 
 const router = Router();
 
+router.get('/stream/:deviceId', RegistryController.stream);
 router.post('/handshake', RegistryController.handshake);
 router.get('/status/:deviceId', RegistryController.checkStatus);
 

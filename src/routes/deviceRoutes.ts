@@ -35,6 +35,8 @@ const router = Router();
  *         description: Device not found
  */
 router.get('/validate', DeviceListController.validateRoomAndSecretUrl);
+router.post('/reload-all', DeviceListController.reloadAllTablets);
+router.post('/:id/reload', DeviceListController.reloadDevice);
 
 /**
  * @swagger

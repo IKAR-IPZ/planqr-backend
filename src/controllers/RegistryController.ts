@@ -1,9 +1,22 @@
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
+import { registerTabletStream } from '../services/tabletStreamService';
 
 const prisma = new PrismaClient();
 
 export class RegistryController {
+
+    // GET /api/registry/stream/{deviceId}
+    static async stream(req: Request, res: Response) {
+        const { deviceId } = req.params;
+
+        if (!deviceId) {
+            return res.status(400).json({ message: "DeviceId is required" });
+        }
+
+        registerTabletStream(deviceId, res);
+        return;
+    }
 
     // POST /api/registry/handshake
     static async handshake(req: Request, res: Response) {

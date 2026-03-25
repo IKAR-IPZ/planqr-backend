@@ -1,7 +1,50 @@
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { DeviceList, PrismaClient } from '@prisma/client';
+import {
+    broadcastTabletCommand,
+    buildTabletPath,
+    getConnectedTabletCount,
+    sendTabletCommandToDevice,
+    TabletCommand,
+    TabletDeviceConfig
+} from '../services/tabletStreamService';
 
 const prisma = new PrismaClient();
+
+const toTabletConfig = (device: DeviceList): TabletDeviceConfig => ({
+    status: device.status,
+    room: device.deviceClassroom,
+    secretUrl: device.deviceURL
+});
+
+const buildDeviceCommand = (
+    device: DeviceList,
+    reason: string,
+    fallbackType: Extract<TabletCommand['type'], 'reload' | 'registry-reset' | 'config-updated'> = 'config-updated'
+): TabletCommand => {
+    const issuedAt = new Date().toISOString();
+    const config = toTabletConfig(device);
+
+    if (device.status === 'ACTIVE' && device.deviceClassroom && device.deviceURL) {
+        return {
+            type: fallbackType === 'registry-reset' ? 'config-updated' : fallbackType,
+            issuedAt,
+            hardReload: true,
+            reason,
+            path: buildTabletPath(device.deviceClassroom, device.deviceURL),
+            config
+        };
+    }
+
+    return {
+        type: 'registry-reset',
+        issuedAt,
+        hardReload: true,
+        reason,
+        path: '/registry',
+        config
+    };
+};
 
 export class DeviceListController {
 
@@ -79,22 +122,57 @@ export class DeviceListController {
         }
 
         try {
-            // Check if we are activating a device
-            if (data.deviceName && data.deviceClassroom) {
-                const current = await prisma.deviceList.findUnique({ where: { id } });
-                if (current && current.status === 'PENDING') {
-                    // Generate URL/Secret
-                    const urlSource = `${data.deviceName}_${data.deviceClassroom.toUpperCase()}`;
+            const current = await prisma.deviceList.findUnique({ where: { id } });
+            if (!current) {
+                res.sendStatus(404);
+                return;
+            }
+
+            if (typeof data.deviceClassroom === 'string') {
+                data.deviceClassroom = data.deviceClassroom.toUpperCase();
+            }
+
+            const nextDeviceName = typeof data.deviceName === 'string' ? data.deviceName : current.deviceName;
+            const nextClassroom = typeof data.deviceClassroom === 'string' ? data.deviceClassroom : current.deviceClassroom;
+
+            if (nextDeviceName && nextClassroom) {
+                const shouldRegenerateSecret =
+                    current.status === 'PENDING' ||
+                    current.deviceName !== nextDeviceName ||
+                    current.deviceClassroom !== nextClassroom ||
+                    !current.deviceURL;
+
+                if (shouldRegenerateSecret) {
+                    const urlSource = `${nextDeviceName}_${nextClassroom}`;
                     data.deviceURL = Buffer.from(urlSource).toString('base64');
+                }
+
+                if (current.status === 'PENDING') {
                     data.status = 'ACTIVE';
-                    data.deviceClassroom = data.deviceClassroom.toUpperCase(); // Ensure uppercase
                 }
             }
 
-            await prisma.deviceList.update({
+            const updatedDevice = await prisma.deviceList.update({
                 where: { id },
                 data
             });
+
+            const configChanged =
+                current.status !== updatedDevice.status ||
+                current.deviceClassroom !== updatedDevice.deviceClassroom ||
+                current.deviceURL !== updatedDevice.deviceURL;
+
+            if (configChanged) {
+                const reason = current.status === 'PENDING'
+                    ? 'device-activated'
+                    : 'device-config-updated';
+
+                sendTabletCommandToDevice(
+                    updatedDevice.deviceId,
+                    buildDeviceCommand(updatedDevice, reason, 'config-updated')
+                );
+            }
+
             res.sendStatus(204);
         } catch (e) {
             const exists = await prisma.deviceList.findUnique({ where: { id } });
@@ -110,13 +188,80 @@ export class DeviceListController {
     static async deleteDevice(req: Request, res: Response) {
         const id = parseInt(req.params.id);
         try {
+            const current = await prisma.deviceList.findUnique({ where: { id } });
+            if (!current) {
+                res.sendStatus(404);
+                return;
+            }
+
             await prisma.deviceList.delete({ where: { id } });
+            sendTabletCommandToDevice(
+                current.deviceId,
+                {
+                    type: 'registry-reset',
+                    issuedAt: new Date().toISOString(),
+                    hardReload: true,
+                    reason: 'device-deleted',
+                    path: '/registry',
+                    config: {
+                        status: 'PENDING',
+                        room: null,
+                        secretUrl: null
+                    }
+                }
+            );
             res.sendStatus(204);
         } catch (e) {
             // Handle error if device doesn't exist
             res.sendStatus(404);
             return;
         }
+    }
+
+    // POST /api/devices/reload-all
+    static async reloadAllTablets(req: Request, res: Response) {
+        const reason = typeof req.body?.reason === 'string'
+            ? req.body.reason
+            : 'admin-broadcast-reload';
+
+        const delivered = broadcastTabletCommand({
+            type: 'reload',
+            issuedAt: new Date().toISOString(),
+            hardReload: true,
+            reason
+        });
+
+        res.status(200).json({
+            message: 'Wysłano sygnał przeładowania do podłączonych tabletów.',
+            delivered,
+            connectedClients: getConnectedTabletCount()
+        });
+    }
+
+    // POST /api/devices/{id}/reload
+    static async reloadDevice(req: Request, res: Response) {
+        const id = parseInt(req.params.id);
+        const device = await prisma.deviceList.findUnique({ where: { id } });
+
+        if (!device) {
+            res.sendStatus(404);
+            return;
+        }
+
+        const reason = typeof req.body?.reason === 'string'
+            ? req.body.reason
+            : 'admin-device-reload';
+
+        const delivered = sendTabletCommandToDevice(
+            device.deviceId,
+            buildDeviceCommand(device, reason, 'reload')
+        );
+
+        res.status(200).json({
+            message: 'Wysłano sygnał przeładowania do urządzenia.',
+            delivered,
+            deviceId: device.deviceId
+        });
     }
 
     // GET /api/devices/validate?room=...&secretUrl=...
