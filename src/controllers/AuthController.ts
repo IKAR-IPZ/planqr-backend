@@ -35,6 +35,16 @@ export class AuthController {
             } = await ldapService.authenticate(username, password as string);
 
             if (isAuthenticated) {
+                console.log('[Auth] LDAP attributes:', JSON.stringify({
+                    username,
+                    givenName,
+                    surname,
+                    title,
+                    employeeTypes,
+                    affiliations,
+                    memberOf
+                }, null, 2));
+
                 const user = await buildAuthenticatedUser({
                     sub: username,
                     givenName,
