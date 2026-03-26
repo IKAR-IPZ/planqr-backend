@@ -9,7 +9,7 @@ export interface TabletDeviceConfig {
 }
 
 export interface TabletCommand {
-    type: 'connected' | 'config-updated' | 'reload' | 'registry-reset';
+    type: 'connected' | 'config-updated' | 'reload' | 'registry-reset' | 'report-display-profile';
     issuedAt: string;
     hardReload?: boolean;
     reason?: string;

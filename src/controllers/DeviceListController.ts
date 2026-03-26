@@ -130,6 +130,12 @@ const buildDeviceCommand = (
     };
 };
 
+const buildDisplayProfileRequestCommand = (reason: string): TabletCommand => ({
+    type: 'report-display-profile',
+    issuedAt: new Date().toISOString(),
+    reason
+});
+
 export class DeviceListController {
 
     // GET /api/devices
@@ -407,6 +413,31 @@ export class DeviceListController {
 
         res.status(200).json({
             message: 'Wysłano sygnał przeładowania do urządzenia.',
+            delivered,
+            deviceId: device.deviceId
+        });
+    }
+
+    // POST /api/devices/{id}/request-display-profile
+    static async requestDisplayProfile(req: Request, res: Response) {
+        const id = parseInt(req.params.id);
+        const device = await prisma.deviceList.findUnique({ where: { id } });
+
+        if (!device) {
+            res.sendStatus(404);
+            return;
+        }
+
+        const delivered = sendTabletCommandToDevice(
+            device.deviceId,
+            buildDisplayProfileRequestCommand('admin-request-display-profile')
+        );
+
+        res.status(200).json({
+            message:
+                delivered > 0
+                    ? 'Wysłano prośbę o raport profilu ekranu.'
+                    : 'Urządzenie nie jest aktualnie połączone.',
             delivered,
             deviceId: device.deviceId
         });

@@ -7,6 +7,17 @@ import {
 } from '../services/tabletDisplaySettingsService';
 
 const prisma = new PrismaClient();
+const MAX_REASONABLE_DIMENSION_PX = 20000;
+const MAX_REASONABLE_DEVICE_PIXEL_RATIO = 20;
+
+interface DisplayProfilePayload {
+    viewportWidthPx: number;
+    viewportHeightPx: number;
+    screenWidthPx: number;
+    screenHeightPx: number;
+    devicePixelRatio: number;
+    screenOrientation: string;
+}
 
 const loadNightModeSettings = async () => {
     try {
@@ -15,6 +26,61 @@ const loadNightModeSettings = async () => {
         console.error('[Registry] Failed to load tablet night mode settings:', error);
         return DEFAULT_TABLET_NIGHT_MODE_SETTINGS;
     }
+};
+
+const parsePositiveInteger = (value: unknown) => {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+        return null;
+    }
+
+    const roundedValue = Math.round(value);
+    if (roundedValue < 1 || roundedValue > MAX_REASONABLE_DIMENSION_PX) {
+        return null;
+    }
+
+    return roundedValue;
+};
+
+const parseDisplayProfilePayload = (
+    body: Request['body']
+): { profile?: DisplayProfilePayload; error?: string } => {
+    const viewportWidthPx = parsePositiveInteger(body?.viewportWidthPx);
+    const viewportHeightPx = parsePositiveInteger(body?.viewportHeightPx);
+    const screenWidthPx = parsePositiveInteger(body?.screenWidthPx);
+    const screenHeightPx = parsePositiveInteger(body?.screenHeightPx);
+    const screenOrientation =
+        typeof body?.screenOrientation === 'string' ? body.screenOrientation.trim() : '';
+    const devicePixelRatio =
+        typeof body?.devicePixelRatio === 'number' && Number.isFinite(body.devicePixelRatio)
+            ? body.devicePixelRatio
+            : null;
+
+    if (!viewportWidthPx || !viewportHeightPx || !screenWidthPx || !screenHeightPx) {
+        return { error: 'Wymiary ekranu muszą być dodatnimi liczbami.' };
+    }
+
+    if (
+        devicePixelRatio === null ||
+        devicePixelRatio <= 0 ||
+        devicePixelRatio > MAX_REASONABLE_DEVICE_PIXEL_RATIO
+    ) {
+        return { error: 'devicePixelRatio musi być dodatnią liczbą.' };
+    }
+
+    if (!screenOrientation || screenOrientation.length > 64) {
+        return { error: 'screenOrientation jest wymagane.' };
+    }
+
+    return {
+        profile: {
+            viewportWidthPx,
+            viewportHeightPx,
+            screenWidthPx,
+            screenHeightPx,
+            devicePixelRatio,
+            screenOrientation
+        }
+    };
 };
 
 export class RegistryController {
@@ -105,6 +171,43 @@ export class RegistryController {
                 secretUrl: device.deviceURL,
                 nightMode
             } : null
+        });
+    }
+
+    // POST /api/registry/display-profile
+    static async updateDisplayProfile(req: Request, res: Response) {
+        const { deviceId } = req.body;
+
+        if (typeof deviceId !== 'string' || !deviceId.trim()) {
+            return res.status(400).json({ message: 'DeviceId is required' });
+        }
+
+        const parsed = parseDisplayProfilePayload(req.body);
+        if (!parsed.profile) {
+            return res.status(400).json({ message: parsed.error });
+        }
+
+        const existingDevice = await prisma.deviceList.findUnique({
+            where: { deviceId }
+        });
+
+        if (!existingDevice) {
+            return res.status(404).json({ message: 'Device not found' });
+        }
+
+        const updatedDevice = await prisma.deviceList.update({
+            where: { deviceId },
+            data: {
+                ...parsed.profile,
+                displayProfileReportedAt: new Date(),
+                lastSeen: new Date()
+            }
+        });
+
+        return res.status(200).json({
+            message: 'Zapisano profil ekranu urządzenia.',
+            deviceId: updatedDevice.deviceId,
+            displayProfileReportedAt: updatedDevice.displayProfileReportedAt
         });
     }
 

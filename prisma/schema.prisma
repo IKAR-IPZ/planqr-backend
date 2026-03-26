@@ -49,6 +49,13 @@ model DeviceList {
   deviceModel     String?
   userAgent       String?
   macAddress      String?
+  viewportWidthPx Int?
+  viewportHeightPx Int?
+  screenWidthPx   Int?
+  screenHeightPx  Int?
+  devicePixelRatio Float?
+  screenOrientation String?
+  displayProfileReportedAt DateTime?
 }
 
 model TabletDisplaySettings {
