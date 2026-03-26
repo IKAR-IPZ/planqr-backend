@@ -2,10 +2,12 @@ import { Request, Response } from 'express';
 import { LdapService } from '../services/LdapService';
 import { env } from '../config/env';
 import jwt from 'jsonwebtoken';
+import { buildAuthenticatedUser, toSessionResponse } from '../services/authAccessService';
 
 const ldapService = new LdapService();
 const ISSUER = "PlanQR_Issuer"; // From C# config likely
 const AUDIENCE = "PlanQR_Audience";
+const ACCESS_TOKEN_VERSION = 2;
 
 export class AuthController {
 
@@ -22,9 +24,44 @@ export class AuthController {
             // We need to update LdapService to return these details, or mock them for now.
             // Assuming LdapService returns boolean for now, we'll fetch details if true.
 
-            const { isAuthenticated, givenName = '', surname = '', title = '' } = await ldapService.authenticate(username, password as string);
+            const {
+                isAuthenticated,
+                givenName = '',
+                surname = '',
+                title = '',
+                employeeTypes = [],
+                affiliations = [],
+                memberOf = [],
+            } = await ldapService.authenticate(username, password as string);
 
             if (isAuthenticated) {
+                console.log('[Auth] LDAP attributes:', JSON.stringify({
+                    username,
+                    givenName,
+                    surname,
+                    title,
+                    employeeTypes,
+                    affiliations,
+                    memberOf
+                }, null, 2));
+
+                const user = await buildAuthenticatedUser({
+                    sub: username,
+                    givenName,
+                    surname,
+                    title,
+                    employeeTypes,
+                    affiliations,
+                    memberOf,
+                });
+
+                if (!user.isAdmin && !user.canAccessLecturerPlan) {
+                    return res.status(403).json({
+                        message: 'Authenticated successfully, but this account has no PlanQR access.',
+                        access: toSessionResponse(user, 'Access denied').access
+                    });
+                }
+
                 // Generate JWT
                 const token = jwt.sign(
                     {
@@ -32,6 +69,10 @@ export class AuthController {
                         givenName,
                         surname,
                         title,
+                        employeeTypes,
+                        affiliations,
+                        memberOf,
+                        planqrAccessVersion: ACCESS_TOKEN_VERSION,
                         jti: Date.now().toString()
                     },
                     env.JWT_SECRET,
@@ -48,12 +89,7 @@ export class AuthController {
                     sameSite: env.NODE_ENV === 'production' ? 'strict' : 'lax'
                 });
 
-                return res.status(200).json({
-                    message: 'Login successful',
-                    givenName,
-                    surname,
-                    title
-                });
+                return res.status(200).json(toSessionResponse(user, 'Login successful'));
             } else {
                 return res.status(401).json({ message: 'Invalid username or password' });
             }
@@ -75,13 +111,19 @@ export class AuthController {
 
         try {
             const decoded = jwt.verify(token, env.JWT_SECRET) as any;
-            return res.status(200).json({
-                message: 'Logged in',
+            if (decoded.planqrAccessVersion !== ACCESS_TOKEN_VERSION) {
+                return res.status(401).json({ message: 'Token has expired or is invalid' });
+            }
+            const user = await buildAuthenticatedUser({
+                sub: decoded.sub,
                 givenName: decoded.givenName,
                 surname: decoded.surname,
                 title: decoded.title,
-                login: decoded.sub
+                employeeTypes: Array.isArray(decoded.employeeTypes) ? decoded.employeeTypes : [],
+                affiliations: Array.isArray(decoded.affiliations) ? decoded.affiliations : [],
+                memberOf: Array.isArray(decoded.memberOf) ? decoded.memberOf : [],
             });
+            return res.status(200).json(toSessionResponse(user, 'Logged in'));
         } catch (e) {
             return res.status(401).json({ message: 'Token has expired or is invalid' });
         }
@@ -93,7 +135,19 @@ export class AuthController {
 
         try {
             const decoded = jwt.verify(token, env.JWT_SECRET) as any;
-            return res.status(200).json({ message: 'Token is valid', username: decoded.sub });
+            if (decoded.planqrAccessVersion !== ACCESS_TOKEN_VERSION) {
+                return res.status(401).json({ message: 'Token has expired' });
+            }
+            const user = await buildAuthenticatedUser({
+                sub: decoded.sub,
+                givenName: decoded.givenName,
+                surname: decoded.surname,
+                title: decoded.title,
+                employeeTypes: Array.isArray(decoded.employeeTypes) ? decoded.employeeTypes : [],
+                affiliations: Array.isArray(decoded.affiliations) ? decoded.affiliations : [],
+                memberOf: Array.isArray(decoded.memberOf) ? decoded.memberOf : [],
+            });
+            return res.status(200).json(toSessionResponse(user, 'Token is valid'));
         } catch (e) {
             return res.status(401).json({ message: 'Token has expired' });
         }

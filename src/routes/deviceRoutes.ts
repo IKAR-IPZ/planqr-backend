@@ -1,7 +1,9 @@
 import { Router } from 'express';
 import { DeviceListController } from '../controllers/DeviceListController';
+import { requireAdmin } from '../middlewares/authMiddleware';
 
 const router = Router();
+router.use(requireAdmin);
 
 // Specific routes first
 /**
@@ -38,6 +40,7 @@ router.get('/validate', DeviceListController.validateRoomAndSecretUrl);
 router.get('/display-settings', DeviceListController.getDisplaySettings);
 router.put('/display-settings', DeviceListController.updateDisplaySettings);
 router.post('/reload-all', DeviceListController.reloadAllTablets);
+router.post('/:id/request-display-profile', DeviceListController.requestDisplayProfile);
 router.post('/:id/reload', DeviceListController.reloadDevice);
 
 /**

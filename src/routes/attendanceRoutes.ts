@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { AttendanceController } from '../controllers/AttendanceController';
+import { requireLecturerAccess } from '../middlewares/authMiddleware';
 
 const router = Router();
 
@@ -65,6 +66,6 @@ router.post('/scan', AttendanceController.recordScan);
  *         description: List of scans
  */
 // eslint-disable-next-line @typescript-eslint/no-misused-promises
-router.get('/', AttendanceController.getLogs);
+router.get('/', requireLecturerAccess, AttendanceController.getLogs);
 
 export default router;

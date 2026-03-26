@@ -9,7 +9,7 @@ export interface TabletDeviceConfig {
 }
 
 export interface TabletCommand {
-    type: 'connected' | 'config-updated' | 'reload' | 'registry-reset';
+    type: 'connected' | 'config-updated' | 'reload' | 'registry-reset' | 'report-display-profile';
     issuedAt: string;
     hardReload?: boolean;
     reason?: string;
@@ -123,4 +123,22 @@ export const getConnectedTabletCount = () => {
     }
 
     return count;
+};
+
+export const hasConnectedTabletStream = (deviceId: string) => {
+    const streams = deviceStreams.get(deviceId);
+    if (!streams || streams.size === 0) {
+        return false;
+    }
+
+    for (const stream of Array.from(streams)) {
+        if (stream.res.writableEnded || stream.res.destroyed) {
+            removeStream(deviceId, stream);
+            continue;
+        }
+
+        return true;
+    }
+
+    return false;
 };

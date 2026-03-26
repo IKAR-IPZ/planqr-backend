@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { MessageController } from '../controllers/MessageController';
+import { requireAdmin, requireLecturerAccess } from '../middlewares/authMiddleware';
 
 const router = Router();
 
@@ -45,7 +46,7 @@ const router = Router();
  *       500:
  *         description: Server error
  */
-router.post('/', MessageController.createMessage);
+router.post('/', requireLecturerAccess, MessageController.createMessage);
 
 /**
  * @swagger
@@ -57,7 +58,7 @@ router.post('/', MessageController.createMessage);
  *       200:
  *         description: List of messages
  */
-router.get('/', MessageController.getAllMessages);
+router.get('/', requireAdmin, MessageController.getAllMessages);
 
 /**
  * @swagger
@@ -93,6 +94,6 @@ router.get('/:lessonId', MessageController.getMessages);
  *       204:
  *         description: Message deleted
  */
-router.delete('/:id', MessageController.deleteMessage);
+router.delete('/:id', requireLecturerAccess, MessageController.deleteMessage);
 
 export default router;

@@ -21,6 +21,7 @@ const envSchema = z.object({
     LDAP_URL: z.string().min(1, "LDAP_URL is required"),
     LDAP_DN: z.string().min(1, "LDAP_DN is required"),
     ZUT_SCHEDULE_STUDENT_URL: z.string().url(),
+    WORKER_SECRET_TOKEN: z.string().optional(),
 });
 
 const parsedEnv = envSchema.safeParse(process.env);

@@ -9,11 +9,12 @@ datasource db {
 
 // User model for tracking logins and roles
 model User {
-  id        String   @id @default(uuid())
-  username  String   @unique 
-  role      String   @default("user") 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String    @id @default(uuid())
+  username    String    @unique
+  role        String    @default("user")
+  adminSource String    @default("database")
+  createdAt   DateTime? @default(now())
+  updatedAt   DateTime? @updatedAt
 }
 
 model Message {
@@ -48,6 +49,13 @@ model DeviceList {
   deviceModel     String?
   userAgent       String?
   macAddress      String?
+  viewportWidthPx Int?
+  viewportHeightPx Int?
+  screenWidthPx   Int?
+  screenHeightPx  Int?
+  devicePixelRatio Float?
+  screenOrientation String?
+  displayProfileReportedAt DateTime?
 }
 
 model TabletDisplaySettings {
@@ -55,6 +63,7 @@ model TabletDisplaySettings {
   nightModeEnabled Boolean  @default(false) @map("night_mode_enabled")
   nightModeStart   String   @default("22:00") @map("night_mode_start")
   nightModeEnd     String   @default("06:00") @map("night_mode_end")
+  blackScreenAfterScheduleEnd Boolean @default(false) @map("black_screen_after_schedule_end")
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 

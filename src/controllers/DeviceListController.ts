@@ -4,6 +4,7 @@ import {
     broadcastTabletCommand,
     buildTabletPath,
     getConnectedTabletCount,
+    hasConnectedTabletStream,
     sendTabletCommandToDevice,
     TabletCommand,
     TabletDeviceConfig
@@ -16,6 +17,9 @@ import {
 
 const prisma = new PrismaClient();
 const NIGHT_MODE_TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
+const TABLET_OFFLINE_THRESHOLD_MS = 75 * 1000;
+
+type DeviceConnectionStatus = 'PENDING' | 'ONLINE' | 'OFFLINE';
 
 const toTabletConfig = (
     device: DeviceList,
@@ -29,15 +33,48 @@ const toTabletConfig = (
 
 const isValidNightModeTime = (value: string) => NIGHT_MODE_TIME_PATTERN.test(value);
 
+const getDeviceConnectionStatus = (device: DeviceList): DeviceConnectionStatus => {
+    if (device.status !== 'ACTIVE') {
+        return 'PENDING';
+    }
+
+    if (hasConnectedTabletStream(device.deviceId)) {
+        return 'ONLINE';
+    }
+
+    const heartbeatAgeMs = Date.now() - device.lastSeen.getTime();
+    return heartbeatAgeMs <= TABLET_OFFLINE_THRESHOLD_MS ? 'ONLINE' : 'OFFLINE';
+};
+
+const serializeDevice = (device: DeviceList) => {
+    const connectionStatus = getDeviceConnectionStatus(device);
+
+    return {
+        ...device,
+        connectionStatus,
+        isConnected: connectionStatus === 'ONLINE'
+    };
+};
+
 const parseNightModeSettingsPayload = (
     body: Request['body']
 ): { settings?: TabletNightModeSettings; error?: string } => {
     const enabled = typeof body?.enabled === 'boolean' ? body.enabled : null;
+    const blackScreenAfterScheduleEnd =
+        typeof body?.blackScreenAfterScheduleEnd === 'boolean'
+            ? body.blackScreenAfterScheduleEnd
+            : null;
     const startTime = typeof body?.startTime === 'string' ? body.startTime.trim() : '';
     const endTime = typeof body?.endTime === 'string' ? body.endTime.trim() : '';
 
     if (enabled === null) {
         return { error: 'Pole enabled musi być wartością logiczną.' };
+    }
+
+    if (blackScreenAfterScheduleEnd === null) {
+        return {
+            error: 'Pole blackScreenAfterScheduleEnd musi być wartością logiczną.'
+        };
     }
 
     if (!isValidNightModeTime(startTime) || !isValidNightModeTime(endTime)) {
@@ -52,7 +89,8 @@ const parseNightModeSettingsPayload = (
         settings: {
             enabled,
             startTime,
-            endTime
+            endTime,
+            blackScreenAfterScheduleEnd
         }
     };
 };
@@ -92,12 +130,18 @@ const buildDeviceCommand = (
     };
 };
 
+const buildDisplayProfileRequestCommand = (reason: string): TabletCommand => ({
+    type: 'report-display-profile',
+    issuedAt: new Date().toISOString(),
+    reason
+});
+
 export class DeviceListController {
 
     // GET /api/devices
     static async getDevices(req: Request, res: Response) {
         const devices = await prisma.deviceList.findMany();
-        res.json(devices);
+        res.json(devices.map(serializeDevice));
     }
 
     // GET /api/devices/{id}
@@ -108,7 +152,7 @@ export class DeviceListController {
             res.sendStatus(404);
             return;
         }
-        res.json(device);
+        res.json(serializeDevice(device));
     }
 
     // GET /api/devices/display-settings
@@ -369,6 +413,31 @@ export class DeviceListController {
 
         res.status(200).json({
             message: 'Wysłano sygnał przeładowania do urządzenia.',
+            delivered,
+            deviceId: device.deviceId
+        });
+    }
+
+    // POST /api/devices/{id}/request-display-profile
+    static async requestDisplayProfile(req: Request, res: Response) {
+        const id = parseInt(req.params.id);
+        const device = await prisma.deviceList.findUnique({ where: { id } });
+
+        if (!device) {
+            res.sendStatus(404);
+            return;
+        }
+
+        const delivered = sendTabletCommandToDevice(
+            device.deviceId,
+            buildDisplayProfileRequestCommand('admin-request-display-profile')
+        );
+
+        res.status(200).json({
+            message:
+                delivered > 0
+                    ? 'Wysłano prośbę o raport profilu ekranu.'
+                    : 'Urządzenie nie jest aktualnie połączone.',
             delivered,
             deviceId: device.deviceId
         });
