@@ -4,6 +4,7 @@ import {
     broadcastTabletCommand,
     buildTabletPath,
     getConnectedTabletCount,
+    hasConnectedTabletStream,
     sendTabletCommandToDevice,
     TabletCommand,
     TabletDeviceConfig
@@ -16,6 +17,9 @@ import {
 
 const prisma = new PrismaClient();
 const NIGHT_MODE_TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
+const TABLET_OFFLINE_THRESHOLD_MS = 75 * 1000;
+
+type DeviceConnectionStatus = 'PENDING' | 'ONLINE' | 'OFFLINE';
 
 const toTabletConfig = (
     device: DeviceList,
@@ -28,6 +32,29 @@ const toTabletConfig = (
 });
 
 const isValidNightModeTime = (value: string) => NIGHT_MODE_TIME_PATTERN.test(value);
+
+const getDeviceConnectionStatus = (device: DeviceList): DeviceConnectionStatus => {
+    if (device.status !== 'ACTIVE') {
+        return 'PENDING';
+    }
+
+    if (hasConnectedTabletStream(device.deviceId)) {
+        return 'ONLINE';
+    }
+
+    const heartbeatAgeMs = Date.now() - device.lastSeen.getTime();
+    return heartbeatAgeMs <= TABLET_OFFLINE_THRESHOLD_MS ? 'ONLINE' : 'OFFLINE';
+};
+
+const serializeDevice = (device: DeviceList) => {
+    const connectionStatus = getDeviceConnectionStatus(device);
+
+    return {
+        ...device,
+        connectionStatus,
+        isConnected: connectionStatus === 'ONLINE'
+    };
+};
 
 const parseNightModeSettingsPayload = (
     body: Request['body']
@@ -97,7 +124,7 @@ export class DeviceListController {
     // GET /api/devices
     static async getDevices(req: Request, res: Response) {
         const devices = await prisma.deviceList.findMany();
-        res.json(devices);
+        res.json(devices.map(serializeDevice));
     }
 
     // GET /api/devices/{id}
@@ -108,7 +135,7 @@ export class DeviceListController {
             res.sendStatus(404);
             return;
         }
-        res.json(device);
+        res.json(serializeDevice(device));
     }
 
     // GET /api/devices/display-settings

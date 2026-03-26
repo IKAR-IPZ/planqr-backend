@@ -9,11 +9,12 @@ datasource db {
 
 // User model for tracking logins and roles
 model User {
-  id        String   @id @default(uuid())
-  username  String   @unique 
-  role      String   @default("user") 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String    @id @default(uuid())
+  username    String    @unique
+  role        String    @default("user")
+  adminSource String    @default("database")
+  createdAt   DateTime? @default(now())
+  updatedAt   DateTime? @updatedAt
 }
 
 model Message {

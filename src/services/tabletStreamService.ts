@@ -124,3 +124,21 @@ export const getConnectedTabletCount = () => {
 
     return count;
 };
+
+export const hasConnectedTabletStream = (deviceId: string) => {
+    const streams = deviceStreams.get(deviceId);
+    if (!streams || streams.size === 0) {
+        return false;
+    }
+
+    for (const stream of Array.from(streams)) {
+        if (stream.res.writableEnded || stream.res.destroyed) {
+            removeStream(deviceId, stream);
+            continue;
+        }
+
+        return true;
+    }
+
+    return false;
+};

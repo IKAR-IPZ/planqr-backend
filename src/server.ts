@@ -11,6 +11,7 @@ import deviceRoutes from "./routes/deviceRoutes";
 import registryRoutes from "./routes/registryRoutes";
 import lessonRoutes from "./routes/lessonRoutes";
 import attendanceRoutes from "./routes/attendanceRoutes";
+import adminRoutes from "./routes/adminRoutes";
 import cookieParser from "cookie-parser";
 import https from "https";
 import fs from "fs";
@@ -35,6 +36,7 @@ app.use('/api/schedule', scheduleRoutes)
 app.use('/api/auth', authRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/devices', deviceRoutes);
+app.use('/api/admins', adminRoutes);
 app.use('/api/registry', registryRoutes);
 app.use('/api/Lesson', lessonRoutes);
 app.use('/api/attendance', attendanceRoutes);
