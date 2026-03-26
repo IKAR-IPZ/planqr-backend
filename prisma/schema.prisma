@@ -56,6 +56,7 @@ model TabletDisplaySettings {
   nightModeEnabled Boolean  @default(false) @map("night_mode_enabled")
   nightModeStart   String   @default("22:00") @map("night_mode_start")
   nightModeEnd     String   @default("06:00") @map("night_mode_end")
+  blackScreenAfterScheduleEnd Boolean @default(false) @map("black_screen_after_schedule_end")
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 

@@ -60,11 +60,21 @@ const parseNightModeSettingsPayload = (
     body: Request['body']
 ): { settings?: TabletNightModeSettings; error?: string } => {
     const enabled = typeof body?.enabled === 'boolean' ? body.enabled : null;
+    const blackScreenAfterScheduleEnd =
+        typeof body?.blackScreenAfterScheduleEnd === 'boolean'
+            ? body.blackScreenAfterScheduleEnd
+            : null;
     const startTime = typeof body?.startTime === 'string' ? body.startTime.trim() : '';
     const endTime = typeof body?.endTime === 'string' ? body.endTime.trim() : '';
 
     if (enabled === null) {
         return { error: 'Pole enabled musi być wartością logiczną.' };
+    }
+
+    if (blackScreenAfterScheduleEnd === null) {
+        return {
+            error: 'Pole blackScreenAfterScheduleEnd musi być wartością logiczną.'
+        };
     }
 
     if (!isValidNightModeTime(startTime) || !isValidNightModeTime(endTime)) {
@@ -79,7 +89,8 @@ const parseNightModeSettingsPayload = (
         settings: {
             enabled,
             startTime,
-            endTime
+            endTime,
+            blackScreenAfterScheduleEnd
         }
     };
 };
