@@ -22,6 +22,8 @@ const app = express();
 const port = env.PORT;
 const cleanupPrisma = new PrismaClient();
 let cleanupInProgress = false;
+const PENDING_DEVICE_STALE_AFTER_MS: number | null = null;
+const PENDING_DEVICE_CLEANUP_INTERVAL_MS = 10 * 1000;
 
 app.use(cors({
     origin: env.CORS_ORIGIN,
@@ -51,6 +53,10 @@ app.get('/', (req, res) => {
 
 // Cleanup job for stale PENDING devices
 const startCleanupJob = () => {
+    if (PENDING_DEVICE_STALE_AFTER_MS === null) {
+        return;
+    }
+
     setInterval(async () => {
         if (cleanupInProgress) {
             return;
@@ -58,12 +64,13 @@ const startCleanupJob = () => {
 
         cleanupInProgress = true;
         try {
-            const thirtySecondsAgo = new Date(Date.now() - 30 * 1000);
+            // Pending tablets should survive brief browser throttling while an admin is pairing them.
+            const staleBefore = new Date(Date.now() - PENDING_DEVICE_STALE_AFTER_MS);
             const { count } = await cleanupPrisma.deviceList.deleteMany({
                 where: {
                     status: 'PENDING',
                     lastSeen: {
-                        lt: thirtySecondsAgo
+                        lt: staleBefore
                     }
                 }
             });
@@ -75,7 +82,7 @@ const startCleanupJob = () => {
         } finally {
             cleanupInProgress = false;
         }
-    }, 10000); // Run every 10 seconds
+    }, PENDING_DEVICE_CLEANUP_INTERVAL_MS);
 };
 
 startCleanupJob();
