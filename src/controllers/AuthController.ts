@@ -10,6 +10,42 @@ const AUDIENCE = "PlanQR_Audience";
 const ACCESS_TOKEN_VERSION = 2;
 
 export class AuthController {
+    private static buildLoginErrorResponse(reason: 'invalid_credentials' | 'timeout' | 'service_unavailable' | 'unexpected') {
+        switch (reason) {
+            case 'invalid_credentials':
+                return {
+                    status: 401,
+                    body: {
+                        code: 'INVALID_CREDENTIALS',
+                        message: 'Nieprawidłowy login lub hasło.'
+                    }
+                };
+            case 'timeout':
+                return {
+                    status: 504,
+                    body: {
+                        code: 'LDAP_TIMEOUT',
+                        message: 'Serwer LDAP nie odpowiedział na czas. Spróbuj ponownie za chwilę.'
+                    }
+                };
+            case 'service_unavailable':
+                return {
+                    status: 503,
+                    body: {
+                        code: 'LDAP_UNAVAILABLE',
+                        message: 'Serwer LDAP jest obecnie niedostępny. Spróbuj ponownie za chwilę.'
+                    }
+                };
+            default:
+                return {
+                    status: 500,
+                    body: {
+                        code: 'AUTH_ERROR',
+                        message: 'Wystąpił błąd podczas logowania. Spróbuj ponownie.'
+                    }
+                };
+        }
+    }
 
     static async login(req: Request, res: Response) {
         console.log(`Login request received. NODE_ENV=${env.NODE_ENV}, Origin=${req.headers.origin}, Cookies=${JSON.stringify(req.cookies)}`);
@@ -24,17 +60,18 @@ export class AuthController {
             // We need to update LdapService to return these details, or mock them for now.
             // Assuming LdapService returns boolean for now, we'll fetch details if true.
 
-            const {
-                isAuthenticated,
-                givenName = '',
-                surname = '',
-                title = '',
-                employeeTypes = [],
-                affiliations = [],
-                memberOf = [],
-            } = await ldapService.authenticate(username, password as string);
+            const authResult = await ldapService.authenticate(username, password as string);
 
-            if (isAuthenticated) {
+            if (authResult.outcome === 'authenticated') {
+                const {
+                    givenName = '',
+                    surname = '',
+                    title = '',
+                    employeeTypes = [],
+                    affiliations = [],
+                    memberOf = [],
+                } = authResult;
+
                 console.log('[Auth] LDAP attributes:', JSON.stringify({
                     username,
                     givenName,
@@ -90,13 +127,16 @@ export class AuthController {
                 });
 
                 return res.status(200).json(toSessionResponse(user, 'Login successful'));
-            } else {
-                return res.status(401).json({ message: 'Invalid username or password' });
             }
+
+            const loginError = AuthController.buildLoginErrorResponse(authResult.reason);
+            return res.status(loginError.status).json(loginError.body);
         } catch (error) {
             console.error('Login error:', error);
-            // C# returns Unauthorized on almost everything here? No, C# returns 500 equivalent usually for crashes, but 401 for bad creds
-            return res.status(500).json({ message: 'Internal server error' });
+            return res.status(500).json({
+                code: 'AUTH_ERROR',
+                message: 'Wystąpił błąd podczas logowania. Spróbuj ponownie.'
+            });
         }
     }
 

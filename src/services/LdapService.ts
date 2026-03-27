@@ -1,6 +1,30 @@
 import ldap from 'ldapjs';
 import { env } from '../config/env';
 
+const LDAP_INVALID_CREDENTIALS_CODE = '49';
+
+export type LdapAuthenticationFailureReason =
+    | 'invalid_credentials'
+    | 'timeout'
+    | 'service_unavailable'
+    | 'unexpected';
+
+export type LdapAuthenticationResult =
+    | {
+        outcome: 'authenticated';
+        givenName?: string;
+        surname?: string;
+        title?: string;
+        employeeTypes?: string[];
+        affiliations?: string[];
+        memberOf?: string[];
+    }
+    | {
+        outcome: 'failed';
+        reason: LdapAuthenticationFailureReason;
+        details: string;
+    };
+
 export class LdapService {
     private readonly ldapUrl: string;
     private readonly ldapDnPattern: string;
@@ -14,28 +38,64 @@ export class LdapService {
      * Authenticate a user against the LDAP server.
      * @param username The username (uid)
      * @param password The password
-     * @returns Promise<boolean> true if authentication succeeds
+     * @returns Structured result that distinguishes invalid credentials from LDAP failures
      */
-    async authenticate(username: string, password: string): Promise<{
-        isAuthenticated: boolean;
-        givenName?: string;
-        surname?: string;
-        title?: string;
-        employeeTypes?: string[];
-        affiliations?: string[];
-        memberOf?: string[];
-    }> {
-        return new Promise((resolve, reject) => {
+    async authenticate(username: string, password: string): Promise<LdapAuthenticationResult> {
+        return new Promise((resolve) => {
             const client = ldap.createClient({
                 url: this.ldapUrl,
                 timeout: 5000,
                 connectTimeout: 5000
             });
 
-            client.on('error', (err) => {
-                console.error('LDAP Client Error:', err);
-                resolve({ isAuthenticated: false });
-            });
+            let settled = false;
+
+            const finish = (result: LdapAuthenticationResult) => {
+                if (settled) {
+                    return;
+                }
+
+                settled = true;
+                client.removeListener('error', handleClientError);
+                resolve(result);
+            };
+
+            const closeClient = (context: string) => {
+                try {
+                    client.unbind((err) => {
+                        if (err) {
+                            console.error(`${context} unbind error:`, err);
+                        }
+                    });
+                } catch (error) {
+                    console.error(`${context} unbind exception:`, error);
+                    try {
+                        client.destroy();
+                    } catch (destroyError) {
+                        console.error(`${context} destroy exception:`, destroyError);
+                    }
+                }
+            };
+
+            const fail = (error: unknown, context: string) => {
+                console.error(`${context}:`, error);
+                finish({
+                    outcome: 'failed',
+                    reason: this.classifyLdapError(error),
+                    details: this.getErrorMessage(error)
+                });
+                closeClient(context);
+            };
+
+            const handleClientError = (error: unknown) => {
+                if (settled) {
+                    return;
+                }
+
+                fail(error, 'LDAP client error');
+            };
+
+            client.on('error', handleClientError);
 
             const userDn = this.ldapDnPattern.replace('%s', username);
 
@@ -43,9 +103,7 @@ export class LdapService {
 
             client.bind(userDn, password, (err) => {
                 if (err) {
-                    console.error(`LDAP Bind failed for ${userDn}:`, err.message);
-                    client.unbind();
-                    return resolve({ isAuthenticated: false });
+                    return fail(err, `LDAP bind failed for ${userDn}`);
                 }
 
                 console.log('LDAP Bind successful for:', username);
@@ -60,10 +118,9 @@ export class LdapService {
                 client.search(userDn, searchOptions, (err, res) => {
                     if (err) {
                         console.error('LDAP Search failed:', err);
-                        try {
-                            client.unbind((err) => { if (err) console.error('Unbind error:', err); });
-                        } catch (e) { console.error('Unbind exception:', e); }
-                        return resolve({ isAuthenticated: true }); // Auth worked, but details failed
+                        finish({ outcome: 'authenticated' });
+                        closeClient('LDAP search');
+                        return;
                     }
 
                     let givenName = '';
@@ -95,15 +152,12 @@ export class LdapService {
                     });
 
                     res.on('end', (result) => {
-                        try {
-                            client.unbind((err) => {
-                                if (err) console.error('Unbind error after search:', err);
-                                else console.log('LDAP Unbound successfully');
-                            });
-                        } catch (e) { console.error('Unbind exception:', e); }
+                        if (result && result.status !== 0) {
+                            console.error('LDAP search ended with non-zero status:', result);
+                        }
 
-                        resolve({
-                            isAuthenticated: true,
+                        finish({
+                            outcome: 'authenticated',
                             givenName,
                             surname,
                             title,
@@ -111,9 +165,73 @@ export class LdapService {
                             affiliations,
                             memberOf
                         });
+                        closeClient('LDAP search');
                     });
                 });
             });
         });
+    }
+
+    private classifyLdapError(error: unknown): LdapAuthenticationFailureReason {
+        if (error instanceof ldap.InvalidCredentialsError) {
+            return 'invalid_credentials';
+        }
+
+        const name = this.getErrorProperty(error, 'name');
+        const code = this.getErrorProperty(error, 'code');
+        const message = this.getErrorMessage(error).toLowerCase();
+
+        if (name === 'InvalidCredentialsError' || code === LDAP_INVALID_CREDENTIALS_CODE) {
+            return 'invalid_credentials';
+        }
+
+        if (
+            name === 'TimeoutError' ||
+            code === 'ETIMEDOUT' ||
+            message.includes('timeout') ||
+            message.includes('timed out')
+        ) {
+            return 'timeout';
+        }
+
+        if (
+            name === 'ConnectionError' ||
+            code === 'ECONNREFUSED' ||
+            code === 'ECONNRESET' ||
+            code === 'ECONNABORTED' ||
+            code === 'ENOTFOUND' ||
+            code === 'EHOSTUNREACH' ||
+            code === 'EAI_AGAIN' ||
+            message.includes('connection') ||
+            message.includes('connect') ||
+            message.includes('unavailable') ||
+            message.includes('socket')
+        ) {
+            return 'service_unavailable';
+        }
+
+        return 'unexpected';
+    }
+
+    private getErrorMessage(error: unknown): string {
+        if (error instanceof Error && error.message) {
+            return error.message;
+        }
+
+        if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') {
+            return error.message;
+        }
+
+        return 'Unknown LDAP error';
+    }
+
+    private getErrorProperty(error: unknown, property: 'name' | 'code'): string | null {
+        if (!error || typeof error !== 'object' || !(property in error)) {
+            return null;
+        }
+
+        const errorRecord = error as Record<string, unknown>;
+        const value = errorRecord[property];
+        return typeof value === 'string' || typeof value === 'number' ? String(value) : null;
     }
 }
