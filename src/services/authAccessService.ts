@@ -15,6 +15,8 @@ export interface IdentityClaims extends AccessSignals {
     sub: string;
     givenName?: string;
     surname?: string;
+    devAuthBypass?: boolean;
+    displayNameOverride?: string;
 }
 
 export interface AccessProfile {
@@ -23,7 +25,7 @@ export interface AccessProfile {
     isLecturer: boolean | null;
     lecturerStatusResolved: boolean;
     canAccessLecturerPlan: boolean;
-    lecturerAccessSource: 'ldap' | 'unknown';
+    lecturerAccessSource: 'env' | 'ldap' | 'unknown';
 }
 
 export interface AuthenticatedUser extends IdentityClaims, AccessProfile {
@@ -60,6 +62,15 @@ const parseRoleTokens = (value?: string | null) =>
 
 const buildDisplayName = (givenName?: string, surname?: string) =>
     [surname?.trim(), givenName?.trim()].filter(Boolean).join(' ').trim();
+
+const buildResolvedDisplayName = (identity: IdentityClaims) => {
+    const displayNameOverride = identity.displayNameOverride?.trim();
+    if (displayNameOverride) {
+        return displayNameOverride;
+    }
+
+    return buildDisplayName(identity.givenName, identity.surname);
+};
 
 const collectNormalizedSignals = (signals?: AccessSignals) => [
     ...(signals?.employeeTypes ?? []),
@@ -182,15 +193,26 @@ export const resolveAccessProfile = async (
     };
 };
 
+const buildDevBypassAccessProfile = (): AccessProfile => ({
+    roles: [],
+    isAdmin: false,
+    isLecturer: true,
+    lecturerStatusResolved: true,
+    canAccessLecturerPlan: true,
+    lecturerAccessSource: 'env',
+});
+
 export const buildAuthenticatedUser = async (
     identity: IdentityClaims
 ): Promise<AuthenticatedUser> => {
-    const access = await resolveAccessProfile(identity.sub, identity);
+    const access = identity.devAuthBypass
+        ? buildDevBypassAccessProfile()
+        : await resolveAccessProfile(identity.sub, identity);
 
     return {
         ...identity,
         login: identity.sub,
-        displayName: buildDisplayName(identity.givenName, identity.surname),
+        displayName: buildResolvedDisplayName(identity),
         ...access,
     };
 };

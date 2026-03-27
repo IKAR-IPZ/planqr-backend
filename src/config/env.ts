@@ -14,6 +14,14 @@ const envSchema = z.object({
             message: "DISABLE_HTTPS must be set to true or false",
         })
         .transform((value) => value === "true"),
+    DEV_AUTH_BYPASS: z
+        .string()
+        .optional()
+        .default("false")
+        .refine((value) => value === "true" || value === "false", {
+            message: "DEV_AUTH_BYPASS must be set to true or false",
+        })
+        .transform((value) => value === "true"),
     BACKEND_PUBLIC_URL: z.string().url(),
     CORS_ORIGIN: z.string().min(1, "CORS_ORIGIN is required"),
     DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
@@ -22,6 +30,14 @@ const envSchema = z.object({
     LDAP_DN: z.string().min(1, "LDAP_DN is required"),
     ZUT_SCHEDULE_STUDENT_URL: z.string().url(),
     WORKER_SECRET_TOKEN: z.string().optional(),
+}).superRefine((value, ctx) => {
+    if (value.DEV_AUTH_BYPASS && value.NODE_ENV !== "development") {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["DEV_AUTH_BYPASS"],
+            message: "DEV_AUTH_BYPASS can only be enabled when NODE_ENV=development",
+        });
+    }
 });
 
 const parsedEnv = envSchema.safeParse(process.env);

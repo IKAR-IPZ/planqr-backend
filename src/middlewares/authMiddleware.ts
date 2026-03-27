@@ -1,9 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
-import { env } from '../config/env';
-import { buildAuthenticatedUser, type AuthenticatedUser, type IdentityClaims } from '../services/authAccessService';
-
-const ACCESS_TOKEN_VERSION = 2;
+import { buildAuthenticatedUser, type AuthenticatedUser } from '../services/authAccessService';
+import { decodeIdentityClaimsFromToken } from '../services/authTokenService';
 
 export interface AuthRequest extends Request {
     user?: AuthenticatedUser;
@@ -18,33 +15,6 @@ const getTokenFromRequest = (req: Request) => {
     return req.cookies?.jwt;
 };
 
-const decodeIdentityClaims = (token: string): IdentityClaims | null => {
-    const decoded = jwt.verify(token, env.JWT_SECRET);
-    if (!decoded || typeof decoded === 'string' || typeof decoded.sub !== 'string') {
-        return null;
-    }
-
-    if (decoded.planqrAccessVersion !== ACCESS_TOKEN_VERSION) {
-        return null;
-    }
-
-    return {
-        sub: decoded.sub,
-        givenName: typeof decoded.givenName === 'string' ? decoded.givenName : '',
-        surname: typeof decoded.surname === 'string' ? decoded.surname : '',
-        title: typeof decoded.title === 'string' ? decoded.title : '',
-        employeeTypes: Array.isArray(decoded.employeeTypes)
-            ? decoded.employeeTypes.map((value) => String(value))
-            : [],
-        affiliations: Array.isArray(decoded.affiliations)
-            ? decoded.affiliations.map((value) => String(value))
-            : [],
-        memberOf: Array.isArray(decoded.memberOf)
-            ? decoded.memberOf.map((value) => String(value))
-            : [],
-    };
-};
-
 const resolveRequestUser = async (req: AuthRequest) => {
     if (req.user) {
         return req.user;
@@ -55,9 +25,9 @@ const resolveRequestUser = async (req: AuthRequest) => {
         return null;
     }
 
-    const identity = decodeIdentityClaims(token);
+    const identity = decodeIdentityClaimsFromToken(token);
     if (!identity) {
-        return null;
+        throw new Error('Invalid or expired token');
     }
 
     const user = await buildAuthenticatedUser(identity);

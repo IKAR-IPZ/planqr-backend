@@ -53,6 +53,12 @@ Backend wymaga tych zmiennych:
 | `LDAP_DN` | tak | wzorzec DN z `%s` dla loginu |
 | `ZUT_SCHEDULE_STUDENT_URL` | tak | źródłowy endpoint planu zajęć używany przez backend |
 
+Opcjonalnie możesz ustawić:
+
+| Zmienna | Wymagana | Opis |
+| --- | --- | --- |
+| `DEV_AUTH_BYPASS` | opcjonalnie | `true` = tylko przy `NODE_ENV=development` pomija LDAP i pozwala zalogować się dowolnym loginem jako prowadzący; domyślnie `false` |
+
 Dodatkowo przy rootowym `docker compose` możesz ustawić:
 
 | Zmienna | Wymagana | Opis |
@@ -77,6 +83,7 @@ JWT_SECRET=change-me
 LDAP_URL=ldap://ldap.zut.edu.pl
 LDAP_DN=uid=%s,cn=users,cn=accounts,dc=zut,dc=edu,dc=pl
 ZUT_SCHEDULE_STUDENT_URL=https://plan.zut.edu.pl/schedule_student.php
+DEV_AUTH_BYPASS=false
 ```
 
 ## Baza danych
@@ -121,6 +128,13 @@ Uzupełnij co najmniej:
 - `DATABASE_URL`
 - `JWT_SECRET`
 - w razie potrzeby `CORS_ORIGIN`
+
+Jeżeli chcesz lokalnie pominąć LDAP, ustaw dodatkowo:
+
+```dotenv
+NODE_ENV=development
+DEV_AUTH_BYPASS=true
+```
 
 ### 2. Zainstaluj zależności
 
@@ -200,6 +214,7 @@ Najbezpieczniej zostaw:
 PORT=9099
 DISABLE_HTTPS=true
 BACKEND_PUBLIC_URL=http://localhost:9099
+DEV_AUTH_BYPASS=false
 ```
 
 ### 2. Uruchom kontener
@@ -251,6 +266,7 @@ JWT_SECRET=change-me
 LDAP_URL=ldap://ldap.zut.edu.pl
 LDAP_DN=uid=%s,cn=users,cn=accounts,dc=zut,dc=edu,dc=pl
 ZUT_SCHEDULE_STUDENT_URL=https://plan.zut.edu.pl/schedule_student.php
+DEV_AUTH_BYPASS=false
 FRONTEND_PORT=443
 BACKEND_INTERNAL_URL=http://backend:9099
 ZUT_SCHEDULE_URL=https://plan.zut.edu.pl/schedule.php
@@ -261,6 +277,7 @@ Ważne:
 - `BACKEND_INTERNAL_URL=http://backend:9099` jest potrzebne frontendowi w kontenerze
 - `DATABASE_URL` musi wskazywać bazę widoczną z kontenera backendu
 - `CORS_ORIGIN` musi odpowiadać adresowi frontendu widocznemu w przeglądarce
+- `DEV_AUTH_BYPASS=true` działa wyłącznie z `NODE_ENV=development`; w innych trybach backend nie wystartuje
 - jeżeli frontend działa na `https://localhost:8443`, dodaj do `CORS_ORIGIN` dokładnie `https://localhost:8443`
 - jeżeli zmienisz `BACKEND_HOST_PORT`, ustaw też zgodny `BACKEND_PUBLIC_URL`, na przykład `http://localhost:9191`
 - w Compose najprostsza i zalecana konfiguracja to `DISABLE_HTTPS=true`, bo TLS kończy się na `nginx` z frontendu
