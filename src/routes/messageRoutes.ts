@@ -81,6 +81,37 @@ router.get('/:lessonId', MessageController.getMessages);
 /**
  * @swagger
  * /api/messages/{id}:
+ *   patch:
+ *     summary: Update an existing message
+ *     tags: [Messages]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               body:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Message updated
+ *       403:
+ *         description: You can only update your own message
+ *       409:
+ *         description: Room change messages are not editable
+ */
+router.patch('/:id', requireLecturerAccess, MessageController.updateMessage);
+
+/**
+ * @swagger
+ * /api/messages/{id}:
  *   delete:
  *     summary: Delete a message
  *     tags: [Messages]

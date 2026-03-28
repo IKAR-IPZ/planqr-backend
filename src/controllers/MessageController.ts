@@ -55,7 +55,8 @@ export class MessageController {
         const lessonId = parseInt(req.params.lessonId);
         try {
             const messages = await prisma.message.findMany({
-                where: { lessonId }
+                where: { lessonId },
+                orderBy: { createdAt: 'desc' }
             });
             res.json(messages);
         } catch (e) {
@@ -66,10 +67,65 @@ export class MessageController {
     // GET /api/messages
     static async getAllMessages(req: Request, res: Response) {
         try {
-            const messages = await prisma.message.findMany();
+            const messages = await prisma.message.findMany({
+                orderBy: { createdAt: 'desc' }
+            });
             res.json(messages);
         } catch (e) {
             res.status(500).send("Error");
+        }
+    }
+
+    // PATCH /api/messages/{id}
+    static async updateMessage(req: AuthRequest, res: Response) {
+        const id = parseInt(req.params.id);
+        const nextBody =
+            typeof req.body?.body === 'string' ? req.body.body.trim() : '';
+
+        try {
+            if (!req.user) {
+                res.status(401).json({ message: 'Authentication required' });
+                return;
+            }
+
+            if (!Number.isInteger(id) || id <= 0) {
+                res.status(400).json({ message: 'Invalid message id' });
+                return;
+            }
+
+            if (!nextBody) {
+                res.status(400).json({ message: 'Message body is required' });
+                return;
+            }
+
+            const existingMessage = await prisma.message.findUnique({ where: { id } });
+
+            if (!existingMessage) {
+                res.sendStatus(404);
+                return;
+            }
+
+            if (existingMessage.isRoomChange) {
+                res.status(409).json({
+                    message: 'Room change messages can only be managed from the room change flow',
+                });
+                return;
+            }
+
+            if (!req.user.isAdmin && existingMessage.login !== req.user.login) {
+                res.status(403).json({ message: 'You can only edit your own messages' });
+                return;
+            }
+
+            const updatedMessage = await prisma.message.update({
+                where: { id },
+                data: { body: nextBody },
+            });
+
+            res.status(200).json(updatedMessage);
+        } catch (e) {
+            console.error(e);
+            res.status(500).send("Server Error");
         }
     }
 
