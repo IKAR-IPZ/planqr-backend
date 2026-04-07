@@ -194,8 +194,8 @@ export const resolveAccessProfile = async (
 };
 
 const buildDevBypassAccessProfile = (): AccessProfile => ({
-    roles: [],
-    isAdmin: false,
+    roles: ['admin'],
+    isAdmin: true,
     isLecturer: true,
     lecturerStatusResolved: true,
     canAccessLecturerPlan: true,
