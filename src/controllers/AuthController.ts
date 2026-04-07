@@ -60,9 +60,6 @@ export class AuthController {
                     givenName: '',
                     surname: '',
                     title: '',
-                    employeeTypes: [],
-                    affiliations: [],
-                    memberOf: [],
                     devAuthBypass: true,
                     displayNameOverride: username,
                 };
@@ -89,9 +86,6 @@ export class AuthController {
                     givenName: authResult.givenName ?? '',
                     surname: authResult.surname ?? '',
                     title: authResult.title ?? '',
-                    employeeTypes: authResult.employeeTypes ?? [],
-                    affiliations: authResult.affiliations ?? [],
-                    memberOf: authResult.memberOf ?? [],
                 };
 
                 console.log('[Auth] LDAP attributes:', JSON.stringify({
@@ -99,9 +93,6 @@ export class AuthController {
                     givenName: identity.givenName,
                     surname: identity.surname,
                     title: identity.title,
-                    employeeTypes: identity.employeeTypes,
-                    affiliations: identity.affiliations,
-                    memberOf: identity.memberOf
                 }, null, 2));
 
                 const user = await buildAuthenticatedUser(identity);

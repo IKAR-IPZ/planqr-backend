@@ -11,16 +11,10 @@ type AccessTokenPayload = jwt.JwtPayload & {
     givenName?: unknown;
     surname?: unknown;
     title?: unknown;
-    employeeTypes?: unknown;
-    affiliations?: unknown;
-    memberOf?: unknown;
     planqrAccessVersion?: unknown;
     devAuthBypass?: unknown;
     displayNameOverride?: unknown;
 };
-
-const toStringArray = (value: unknown) =>
-    Array.isArray(value) ? value.map((item) => String(item)) : [];
 
 export const createAccessToken = (identity: IdentityClaims) =>
     jwt.sign(
@@ -29,9 +23,6 @@ export const createAccessToken = (identity: IdentityClaims) =>
             givenName: identity.givenName ?? '',
             surname: identity.surname ?? '',
             title: identity.title ?? '',
-            employeeTypes: identity.employeeTypes ?? [],
-            affiliations: identity.affiliations ?? [],
-            memberOf: identity.memberOf ?? [],
             devAuthBypass: identity.devAuthBypass === true,
             displayNameOverride: identity.displayNameOverride,
             planqrAccessVersion: ACCESS_TOKEN_VERSION,
@@ -68,9 +59,6 @@ export const decodeIdentityClaimsFromToken = (token: string): IdentityClaims | n
             givenName: typeof payload.givenName === 'string' ? payload.givenName : '',
             surname: typeof payload.surname === 'string' ? payload.surname : '',
             title: typeof payload.title === 'string' ? payload.title : '',
-            employeeTypes: toStringArray(payload.employeeTypes),
-            affiliations: toStringArray(payload.affiliations),
-            memberOf: toStringArray(payload.memberOf),
             devAuthBypass,
             displayNameOverride:
                 typeof payload.displayNameOverride === 'string' ? payload.displayNameOverride : undefined,

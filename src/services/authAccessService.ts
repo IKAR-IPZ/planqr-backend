@@ -6,9 +6,6 @@ let hasLoggedRoleLookupError = false;
 
 export interface AccessSignals {
     title?: string;
-    employeeTypes?: string[];
-    affiliations?: string[];
-    memberOf?: string[];
 }
 
 export interface IdentityClaims extends AccessSignals {
@@ -22,10 +19,10 @@ export interface IdentityClaims extends AccessSignals {
 export interface AccessProfile {
     roles: string[];
     isAdmin: boolean;
-    isLecturer: boolean | null;
+    isLecturer: boolean;
     lecturerStatusResolved: boolean;
     canAccessLecturerPlan: boolean;
-    lecturerAccessSource: 'env' | 'ldap' | 'unknown';
+    lecturerAccessSource: 'env' | 'ldap';
 }
 
 export interface AuthenticatedUser extends IdentityClaims, AccessProfile {
@@ -72,66 +69,6 @@ const buildResolvedDisplayName = (identity: IdentityClaims) => {
     return buildDisplayName(identity.givenName, identity.surname);
 };
 
-const collectNormalizedSignals = (signals?: AccessSignals) => [
-    ...(signals?.employeeTypes ?? []),
-    ...(signals?.affiliations ?? []),
-    ...(signals?.memberOf ?? []),
-    ...(signals?.title ? [signals.title] : []),
-].map(normalizeValue).filter(Boolean);
-
-const hasKeyword = (values: string[], keywords: string[]) =>
-    values.some((value) => keywords.some((keyword) => value.includes(keyword)));
-
-const inferLecturerFromSignals = (signals?: AccessSignals) => {
-    const normalizedSignals = collectNormalizedSignals(signals);
-
-    if (normalizedSignals.length === 0) {
-        return {
-            isLecturer: null,
-            lecturerStatusResolved: false,
-            lecturerAccessSource: 'unknown' as const,
-        };
-    }
-
-    const positiveKeywords = [
-        'lecturer',
-        'teacher',
-        'instructor',
-        'faculty',
-        'academic',
-        'dydakty',
-        'wykladow',
-        'adiunkt',
-        'asystent',
-        'profesor',
-        'professor',
-    ];
-
-    const negativeKeywords = ['student', 'studentka', 'studentow', 'studentka'];
-
-    if (hasKeyword(normalizedSignals, positiveKeywords)) {
-        return {
-            isLecturer: true,
-            lecturerStatusResolved: true,
-            lecturerAccessSource: 'ldap' as const,
-        };
-    }
-
-    if (hasKeyword(normalizedSignals, negativeKeywords)) {
-        return {
-            isLecturer: false,
-            lecturerStatusResolved: true,
-            lecturerAccessSource: 'ldap' as const,
-        };
-    }
-
-    return {
-        isLecturer: null,
-        lecturerStatusResolved: false,
-        lecturerAccessSource: 'unknown' as const,
-    };
-};
-
 const getStoredRoles = async (username: string) => {
     try {
         const user = await prisma.user.findUnique({
@@ -156,40 +93,16 @@ export const resolveAccessProfile = async (
 ): Promise<AccessProfile> => {
     const storedRoles = await getStoredRoles(username);
     const roles = new Set<string>(storedRoles);
-
     const isAdmin = roles.has('admin');
-
-    const inferredAccess = inferLecturerFromSignals(signals);
-
-    if (inferredAccess.isLecturer === true) {
-        return {
-            roles: Array.from(roles).sort(),
-            isAdmin,
-            isLecturer: true,
-            lecturerStatusResolved: true,
-            canAccessLecturerPlan: true,
-            lecturerAccessSource: inferredAccess.lecturerAccessSource,
-        };
-    }
-
-    if (inferredAccess.isLecturer === false) {
-        return {
-            roles: Array.from(roles).sort(),
-            isAdmin,
-            isLecturer: false,
-            lecturerStatusResolved: true,
-            canAccessLecturerPlan: false,
-            lecturerAccessSource: inferredAccess.lecturerAccessSource,
-        };
-    }
+    const isStudent = signals?.title === 'student';
 
     return {
         roles: Array.from(roles).sort(),
         isAdmin,
-        isLecturer: null,
-        lecturerStatusResolved: false,
-        canAccessLecturerPlan: false,
-        lecturerAccessSource: 'unknown',
+        isLecturer: !isStudent,
+        lecturerStatusResolved: true,
+        canAccessLecturerPlan: !isStudent,
+        lecturerAccessSource: 'ldap',
     };
 };
 

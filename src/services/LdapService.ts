@@ -15,9 +15,6 @@ export type LdapAuthenticationResult =
         givenName?: string;
         surname?: string;
         title?: string;
-        employeeTypes?: string[];
-        affiliations?: string[];
-        memberOf?: string[];
     }
     | {
         outcome: 'failed';
@@ -112,7 +109,7 @@ export class LdapService {
                 const searchOptions: ldap.SearchOptions = {
                     scope: 'base',
                     filter: '(objectClass=*)',
-                    attributes: ['givenName', 'sn', 'title', 'cn', 'employeeType', 'eduPersonAffiliation', 'memberOf']
+                    attributes: ['givenName', 'sn', 'title']
                 };
 
                 client.search(userDn, searchOptions, (err, res) => {
@@ -126,25 +123,13 @@ export class LdapService {
                     let givenName = '';
                     let surname = '';
                     let title = '';
-                    let employeeTypes: string[] = [];
-                    let affiliations: string[] = [];
-                    let memberOf: string[] = [];
 
                     res.on('searchEntry', (entry) => {
                         const userEntry = (entry as any).object || (entry as any).pojo || {};
-                        const toArray = (value: unknown) =>
-                            Array.isArray(value)
-                                ? value.map((item) => String(item)).filter(Boolean)
-                                : value
-                                    ? [String(value)]
-                                    : [];
 
                         givenName = userEntry.givenName || '';
                         surname = userEntry.sn || '';
                         title = userEntry.title || '';
-                        employeeTypes = toArray(userEntry.employeeType);
-                        affiliations = toArray(userEntry.eduPersonAffiliation);
-                        memberOf = toArray(userEntry.memberOf);
                     });
 
                     res.on('error', (err) => {
@@ -160,10 +145,7 @@ export class LdapService {
                             outcome: 'authenticated',
                             givenName,
                             surname,
-                            title,
-                            employeeTypes,
-                            affiliations,
-                            memberOf
+                            title
                         });
                         closeClient('LDAP search');
                     });
