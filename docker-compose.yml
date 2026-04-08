@@ -9,6 +9,7 @@ services:
       LDAP_URL: "${LDAP_URL}"
       LDAP_DN: "${LDAP_DN}"
       DISABLE_HTTPS: "${DISABLE_HTTPS}"
+      DEV_AUTH_BYPASS: "${DEV_AUTH_BYPASS:-false}"
     volumes:
       - /home/user/planqr-secrets/certs:/certs:ro
     command: sh -c "npx prisma db push && npm start"
