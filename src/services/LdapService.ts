@@ -105,40 +105,54 @@ export class LdapService {
 
                 console.log('LDAP Bind successful for:', username);
 
-                // Now search for user details
+                const searchBaseDn = this.getSearchBaseDn();
                 const searchOptions: ldap.SearchOptions = {
-                    scope: 'base',
-                    filter: '(objectClass=*)',
+                    scope: 'sub',
+                    filter: `(uid=${this.escapeLdapFilterValue(username)})`,
                     attributes: ['givenName', 'sn', 'title']
                 };
 
-                client.search(userDn, searchOptions, (err, res) => {
+                client.search(searchBaseDn, searchOptions, (err, res) => {
                     if (err) {
-                        console.error('LDAP Search failed:', err);
-                        finish({ outcome: 'authenticated' });
-                        closeClient('LDAP search');
-                        return;
+                        return fail(err, `LDAP search failed for ${username}`);
                     }
 
                     let givenName = '';
                     let surname = '';
                     let title = '';
+                    let entryFound = false;
 
                     res.on('searchEntry', (entry) => {
-                        const userEntry = (entry as any).object || (entry as any).pojo || {};
+                        entryFound = true;
 
-                        givenName = userEntry.givenName || '';
-                        surname = userEntry.sn || '';
-                        title = userEntry.title || '';
+                        givenName = this.getSearchEntryAttributeValue(entry, 'givenName');
+                        surname = this.getSearchEntryAttributeValue(entry, 'sn');
+                        title = this.getSearchEntryAttributeValue(entry, 'title');
+
+                        if (!givenName && !surname && !title) {
+                            console.warn(
+                                `[LDAP] Search entry for "${username}" did not expose givenName/sn/title. Available keys: ${JSON.stringify(this.getSearchEntryDebugKeys(entry))}`
+                            );
+                        }
                     });
 
                     res.on('error', (err) => {
-                        console.error('Search entry error:', err);
+                        fail(err, `LDAP search result error for ${username}`);
                     });
 
                     res.on('end', (result) => {
+                        if (settled) {
+                            return;
+                        }
+
                         if (result && result.status !== 0) {
-                            console.error('LDAP search ended with non-zero status:', result);
+                            fail(new Error(`LDAP search ended with status ${result.status}`), `LDAP search ended for ${username}`);
+                            return;
+                        }
+
+                        if (!entryFound) {
+                            fail(new Error('LDAP search returned no entries'), `LDAP search returned no user entry for ${username}`);
+                            return;
                         }
 
                         finish({
@@ -152,6 +166,170 @@ export class LdapService {
                 });
             });
         });
+    }
+
+    private getSearchBaseDn() {
+        const firstCommaIndex = this.ldapDnPattern.indexOf(',');
+        return firstCommaIndex >= 0 ? this.ldapDnPattern.slice(firstCommaIndex + 1).trim() : this.ldapDnPattern;
+    }
+
+    private escapeLdapFilterValue(value: string) {
+        return value.replace(/[\\()*\0]/g, (character) => {
+            switch (character) {
+                case '\\':
+                    return '\\5c';
+                case '*':
+                    return '\\2a';
+                case '(':
+                    return '\\28';
+                case ')':
+                    return '\\29';
+                case '\0':
+                    return '\\00';
+                default:
+                    return character;
+            }
+        });
+    }
+
+    private getSearchEntryAttributeValue(entry: ldap.SearchEntry, attribute: string) {
+        const directValue = this.getAttributeValueFromRecord(entry as unknown as Record<string, unknown>, attribute);
+        if (directValue) {
+            return directValue;
+        }
+
+        const pojoValue = this.getAttributeValueFromRecord(entry.pojo as unknown as Record<string, unknown>, attribute);
+        if (pojoValue) {
+            return pojoValue;
+        }
+
+        const attributeValue = this.getAttributeValueFromCollections([
+            entry.attributes,
+            entry.pojo?.attributes,
+        ], attribute);
+
+        return attributeValue;
+    }
+
+    private getSearchEntryDebugKeys(entry: ldap.SearchEntry) {
+        const directKeys = Object.keys(entry as unknown as Record<string, unknown>);
+        const pojoKeys = Object.keys((entry.pojo ?? {}) as unknown as Record<string, unknown>).map((key) => `pojo.${key}`);
+        const attributeKeys = this.collectAttributeNames([entry.attributes, entry.pojo?.attributes]).map((key) => `attr.${key}`);
+
+        return Array.from(new Set([...directKeys, ...pojoKeys, ...attributeKeys])).sort();
+    }
+
+    private getAttributeValueFromCollections(
+        collections: Array<unknown[] | undefined>,
+        attribute: string
+    ) {
+        const targetAttribute = attribute.toLowerCase();
+
+        for (const collection of collections) {
+            if (!Array.isArray(collection)) {
+                continue;
+            }
+
+            for (const item of collection) {
+                if (!item || typeof item !== 'object') {
+                    continue;
+                }
+
+                const itemRecord = item as Record<string, unknown>;
+                const typeCandidate =
+                    typeof itemRecord.type === 'string'
+                        ? itemRecord.type
+                        : typeof itemRecord.name === 'string'
+                            ? itemRecord.name
+                            : '';
+
+                if (typeCandidate.toLowerCase() !== targetAttribute) {
+                    continue;
+                }
+
+                const valuesCandidate =
+                    Array.isArray(itemRecord.values)
+                        ? itemRecord.values
+                        : Array.isArray(itemRecord.vals)
+                            ? itemRecord.vals
+                            : [];
+
+                const resolvedValue = valuesCandidate
+                    .map((value) => String(value).trim())
+                    .find(Boolean);
+
+                if (resolvedValue) {
+                    return resolvedValue;
+                }
+
+                const singleValueCandidate = this.getAttributeValueFromRecord(itemRecord, 'value');
+                if (singleValueCandidate) {
+                    return singleValueCandidate;
+                }
+            }
+        }
+
+        return '';
+    }
+
+    private collectAttributeNames(collections: Array<unknown[] | undefined>) {
+        const names = new Set<string>();
+
+        for (const collection of collections) {
+            if (!Array.isArray(collection)) {
+                continue;
+            }
+
+            for (const item of collection) {
+                if (!item || typeof item !== 'object') {
+                    continue;
+                }
+
+                const itemRecord = item as Record<string, unknown>;
+                const typeCandidate =
+                    typeof itemRecord.type === 'string'
+                        ? itemRecord.type
+                        : typeof itemRecord.name === 'string'
+                            ? itemRecord.name
+                            : null;
+
+                if (typeCandidate) {
+                    names.add(typeCandidate);
+                }
+            }
+        }
+
+        return Array.from(names);
+    }
+
+    private getAttributeValueFromRecord(entry: Record<string, unknown>, attribute: string) {
+        const exactValue = this.normalizeAttributeValue(entry[attribute]);
+        if (exactValue) {
+            return exactValue;
+        }
+
+        const matchingKey = Object.keys(entry).find((key) => key.toLowerCase() === attribute.toLowerCase());
+        if (!matchingKey) {
+            return '';
+        }
+
+        return this.normalizeAttributeValue(entry[matchingKey]);
+    }
+
+    private normalizeAttributeValue(value: unknown) {
+        if (Array.isArray(value)) {
+            return value.map((item) => String(item).trim()).find(Boolean) ?? '';
+        }
+
+        if (typeof value === 'string') {
+            return value.trim();
+        }
+
+        if (value === null || value === undefined) {
+            return '';
+        }
+
+        return String(value).trim();
     }
 
     private classifyLdapError(error: unknown): LdapAuthenticationFailureReason {

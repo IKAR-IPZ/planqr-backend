@@ -90,6 +90,8 @@ startCleanupJob();
 
 
 const startServer = () => {
+    console.log(`[Config]: NODE_ENV=${env.NODE_ENV}, DEV_AUTH_BYPASS=${env.DEV_AUTH_BYPASS}, PORT=${env.PORT}`);
+
     if (!env.DISABLE_HTTPS) {
         try {
             const certPath = path.join(process.cwd(), 'certs');
