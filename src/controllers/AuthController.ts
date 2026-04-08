@@ -1,7 +1,12 @@
 import { Request, Response } from 'express';
 import { LdapService } from '../services/LdapService';
 import { env } from '../config/env';
-import { buildAuthenticatedUser, toSessionResponse, type IdentityClaims } from '../services/authAccessService';
+import {
+    buildAuthenticatedUser,
+    hasRequiredLdapIdentityData,
+    toSessionResponse,
+    type IdentityClaims
+} from '../services/authAccessService';
 import { createAccessToken, decodeIdentityClaimsFromToken } from '../services/authTokenService';
 
 const ldapService = new LdapService();
@@ -45,7 +50,9 @@ export class AuthController {
     }
 
     static async login(req: Request, res: Response) {
-        console.log(`Login request received. NODE_ENV=${env.NODE_ENV}, Origin=${req.headers.origin}, Cookies=${JSON.stringify(req.cookies)}`);
+        console.log(
+            `Login request received. NODE_ENV=${env.NODE_ENV}, DEV_AUTH_BYPASS=${env.DEV_AUTH_BYPASS}, Origin=${req.headers.origin}, Cookies=${JSON.stringify(req.cookies)}`
+        );
         try {
             const username = typeof req.body?.username === 'string' ? req.body.username.trim() : '';
             const password = typeof req.body?.password === 'string' ? req.body.password : '';
@@ -94,6 +101,20 @@ export class AuthController {
                     surname: identity.surname,
                     title: identity.title,
                 }, null, 2));
+
+                if (!hasRequiredLdapIdentityData(identity)) {
+                    console.error('[Auth] LDAP returned incomplete identity data.', JSON.stringify({
+                        username,
+                        givenName: identity.givenName,
+                        surname: identity.surname,
+                        title: identity.title,
+                    }, null, 2));
+
+                    return res.status(500).json({
+                        code: 'AUTH_ERROR',
+                        message: 'Wystąpił błąd podczas logowania. Spróbuj ponownie.'
+                    });
+                }
 
                 const user = await buildAuthenticatedUser(identity);
 

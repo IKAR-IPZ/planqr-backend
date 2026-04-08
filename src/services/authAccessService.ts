@@ -19,16 +19,15 @@ export interface IdentityClaims extends AccessSignals {
 export interface AccessProfile {
     roles: string[];
     isAdmin: boolean;
-    isLecturer: boolean;
-    lecturerStatusResolved: boolean;
     canAccessLecturerPlan: boolean;
-    lecturerAccessSource: 'env' | 'ldap';
 }
 
 export interface AuthenticatedUser extends IdentityClaims, AccessProfile {
     login: string;
     displayName: string;
 }
+
+const trimText = (value?: string) => value?.trim() ?? '';
 
 const normalizeValue = (value: string) =>
     value
@@ -57,11 +56,14 @@ const parseRoleTokens = (value?: string | null) =>
             .filter((token) => token === 'admin')
     );
 
-const buildDisplayName = (givenName?: string, surname?: string) =>
-    [surname?.trim(), givenName?.trim()].filter(Boolean).join(' ').trim();
+export const buildDisplayName = (givenName?: string, surname?: string) =>
+    [trimText(surname), trimText(givenName)].filter(Boolean).join(' ').trim();
+
+export const hasRequiredLdapIdentityData = (identity: Pick<IdentityClaims, 'givenName' | 'surname' | 'title'>) =>
+    Boolean(trimText(identity.givenName) && trimText(identity.surname) && trimText(identity.title));
 
 const buildResolvedDisplayName = (identity: IdentityClaims) => {
-    const displayNameOverride = identity.displayNameOverride?.trim();
+    const displayNameOverride = trimText(identity.displayNameOverride);
     if (displayNameOverride) {
         return displayNameOverride;
     }
@@ -99,20 +101,14 @@ export const resolveAccessProfile = async (
     return {
         roles: Array.from(roles).sort(),
         isAdmin,
-        isLecturer: !isStudent,
-        lecturerStatusResolved: true,
         canAccessLecturerPlan: !isStudent,
-        lecturerAccessSource: 'ldap',
     };
 };
 
 const buildDevBypassAccessProfile = (): AccessProfile => ({
     roles: ['admin'],
     isAdmin: true,
-    isLecturer: true,
-    lecturerStatusResolved: true,
     canAccessLecturerPlan: true,
-    lecturerAccessSource: 'env',
 });
 
 export const buildAuthenticatedUser = async (
@@ -140,9 +136,6 @@ export const toSessionResponse = (user: AuthenticatedUser, message: string) => (
     access: {
         roles: user.roles,
         isAdmin: user.isAdmin,
-        isLecturer: user.isLecturer,
-        lecturerStatusResolved: user.lecturerStatusResolved,
         canAccessLecturerPlan: user.canAccessLecturerPlan,
-        lecturerAccessSource: user.lecturerAccessSource,
     }
 });
