@@ -17,6 +17,7 @@ import {
 
 const prisma = new PrismaClient();
 const NIGHT_MODE_TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
+const PENDING_DEVICE_CODE_PATTERN = /^\d{6}$/;
 const TABLET_OFFLINE_THRESHOLD_MS = 75 * 1000;
 
 type DeviceConnectionStatus = 'PENDING' | 'ONLINE' | 'OFFLINE';
@@ -32,6 +33,14 @@ const toTabletConfig = (
 });
 
 const isValidNightModeTime = (value: string) => NIGHT_MODE_TIME_PATTERN.test(value);
+
+const normalizePendingDeviceCode = (value: unknown) => {
+    if (typeof value !== 'string') {
+        return '';
+    }
+
+    return value.replace(/\s+/g, '').trim();
+};
 
 const getDeviceConnectionStatus = (device: DeviceList): DeviceConnectionStatus => {
     if (device.status !== 'ACTIVE') {
@@ -153,6 +162,34 @@ export class DeviceListController {
             return;
         }
         res.json(serializeDevice(device));
+    }
+
+    // GET /api/devices/pending/by-code?deviceId=123456
+    static async getPendingDeviceByCode(req: Request, res: Response) {
+        const deviceId = normalizePendingDeviceCode(req.query.deviceId);
+
+        if (!PENDING_DEVICE_CODE_PATTERN.test(deviceId)) {
+            res.status(400).json({
+                message: 'Kod tabletu musi składać się z dokładnie 6 cyfr.'
+            });
+            return;
+        }
+
+        const device = await prisma.deviceList.findFirst({
+            where: {
+                deviceId,
+                status: 'PENDING'
+            }
+        });
+
+        if (!device) {
+            res.status(404).json({
+                message: 'Nie znaleziono tabletu oczekującego na rejestrację z tym kodem.'
+            });
+            return;
+        }
+
+        res.status(200).json(serializeDevice(device));
     }
 
     // GET /api/devices/display-settings
