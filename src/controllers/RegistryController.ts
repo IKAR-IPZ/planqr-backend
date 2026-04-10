@@ -9,6 +9,7 @@ import {
     ensureDeviceListDisplaySettingsColumns,
     serializeDeviceDisplaySettings
 } from '../services/deviceDisplaySettingsService';
+import { generateDeviceSecret } from '../services/deviceSecretService';
 
 const prisma = new PrismaClient();
 const MAX_REASONABLE_DIMENSION_PX = 20000;
@@ -135,52 +136,22 @@ export class RegistryController {
         });
 
         if (!device) {
-            // Extract Metadata
-            const ipAddress = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress;
-            const userAgent = req.headers['user-agent'];
-            let deviceModel = null;
-
-            if (userAgent) {
-                const match = userAgent.match(/\((.*?)\)/);
-                if (match && match[1]) {
-                    deviceModel = match[1];
-                }
-            }
-
             // New device, create as PENDING
             device = await prisma.deviceList.create({
                 data: {
                     deviceId,
                     status: 'PENDING',
-                    deviceName: null,
                     deviceClassroom: null,
-                    deviceURL: null,
-                    lastSeen: new Date(),
-                    ipAddress,
-                    userAgent,
-                    deviceModel
+                    deviceURL: generateDeviceSecret(),
+                    lastSeen: new Date()
                 }
             });
         } else {
-            // Update lastSeen and metadata for existing device
-            const ipAddress = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress;
-            const userAgent = req.headers['user-agent'];
-            let deviceModel = device.deviceModel; // Keep existing if not found? Or update? Let's update.
-
-            if (userAgent) {
-                const match = userAgent.match(/\((.*?)\)/);
-                if (match && match[1]) {
-                    deviceModel = match[1];
-                }
-            }
-
-            await prisma.deviceList.update({
+            device = await prisma.deviceList.update({
                 where: { deviceId },
                 data: {
                     lastSeen: new Date(),
-                    ipAddress,
-                    userAgent,
-                    deviceModel
+                    ...(device.deviceURL ? {} : { deviceURL: generateDeviceSecret() })
                 }
             });
         }

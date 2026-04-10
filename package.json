@@ -7,7 +7,7 @@
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "rimraf dist && tsc",
     "start": "node dist/server.js",
-    "start:container": "npx prisma db execute --schema ./prisma/schema.prisma --file ./prisma/20260410_admins_from_users.sql && npx prisma db push && node dist/server.js",
+    "start:container": "npx prisma db execute --schema ./prisma/schema.prisma --file ./prisma/20260410_admins_from_users.sql && npx prisma db execute --schema ./prisma/schema.prisma --file ./prisma/20260410_tablet_device_cleanup.sql && npx prisma db push && node dist/server.js",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push",
     "prisma:studio": "prisma studio",

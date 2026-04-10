@@ -39,7 +39,6 @@ model Message {
 
 model DeviceList {
   id              Int      @id @default(autoincrement())
-  deviceName      String?
   deviceClassroom String?
   deviceURL       String?  
   deviceId        String   @unique // The Client UUID
@@ -49,9 +48,6 @@ model DeviceList {
   forceBlackScreen Boolean @default(false)
 
   // New metadata
-  ipAddress       String?
-  deviceModel     String?
-  userAgent       String?
   macAddress      String?
   viewportWidthPx Int?
   viewportHeightPx Int?

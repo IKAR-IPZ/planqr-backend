@@ -86,15 +86,13 @@ router.get('/:id', DeviceListController.getDevice);
  *     tags: [Devices]
  *     requestBody:
  *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               deviceName:
- *                 type: string
- *               deviceClassroom:
- *                 type: string
+    *       content:
+    *         application/json:
+    *           schema:
+    *             type: object
+    *             properties:
+    *               deviceClassroom:
+    *                 type: string
  *     responses:
  *       201:
  *         description: Device created

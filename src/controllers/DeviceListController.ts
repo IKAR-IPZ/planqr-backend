@@ -21,6 +21,7 @@ import {
     isTabletDisplayTheme,
     serializeDeviceDisplaySettings
 } from '../services/deviceDisplaySettingsService';
+import { generateDeviceSecret } from '../services/deviceSecretService';
 
 const prisma = new PrismaClient();
 const NIGHT_MODE_TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -412,42 +413,14 @@ export class DeviceListController {
     // POST /api/devices
     static async createDevice(req: Request, res: Response) {
         await ensureDeviceListDisplaySettingsColumns(prisma);
-        const { deviceName, deviceClassroom, deviceModel, macAddress, deviceId } = req.body;
-
-        // Generate device URL from name and classroom
-        const urlSource = `${deviceName}_${deviceClassroom.toUpperCase()}`;
-        const deviceURL = Buffer.from(urlSource).toString('base64');
-
-        // Extract Metadata
-        const ipAddress = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress;
-        const userAgent = req.headers['user-agent'];
-
-        console.log("DEBUG: createDevice called");
-        console.log("Headers:", JSON.stringify(req.headers, null, 2));
-        console.log("Body:", JSON.stringify(req.body, null, 2));
-        console.log("Extracted IP:", ipAddress);
-        console.log("Extracted UA:", userAgent);
-
-        // Fallback: try to extract model from User-Agent if not provided
-        let finalDeviceModel = deviceModel;
-        if (!finalDeviceModel && userAgent) {
-            // Simple regex to catch Android model in parens, e.g. (Linux; Android 10; SM-A202F)
-            const match = userAgent.match(/\((.*?)\)/);
-            if (match && match[1]) {
-                finalDeviceModel = match[1];
-            }
-        }
+        const { deviceClassroom, macAddress, deviceId } = req.body;
 
         const device = await prisma.deviceList.create({
             data: {
                 deviceId,
-                deviceName,
                 deviceClassroom: deviceClassroom.toUpperCase(),
-                deviceURL,
-                deviceModel: finalDeviceModel,
-                macAddress,
-                ipAddress,
-                userAgent
+                deviceURL: generateDeviceSecret(),
+                macAddress
             }
         });
 
@@ -478,23 +451,15 @@ export class DeviceListController {
                 data.deviceClassroom = data.deviceClassroom.toUpperCase();
             }
 
-            const nextDeviceName = typeof data.deviceName === 'string' ? data.deviceName : current.deviceName;
             const nextClassroom = typeof data.deviceClassroom === 'string' ? data.deviceClassroom : current.deviceClassroom;
 
-            if (nextDeviceName && nextClassroom) {
-                const shouldRegenerateSecret =
-                    current.status === 'PENDING' ||
-                    current.deviceName !== nextDeviceName ||
-                    current.deviceClassroom !== nextClassroom ||
-                    !current.deviceURL;
-
-                if (shouldRegenerateSecret) {
-                    const urlSource = `${nextDeviceName}_${nextClassroom}`;
-                    data.deviceURL = Buffer.from(urlSource).toString('base64');
-                }
-
+            if (nextClassroom) {
                 if (current.status === 'PENDING') {
                     data.status = 'ACTIVE';
+                }
+
+                if (!current.deviceURL) {
+                    data.deviceURL = generateDeviceSecret();
                 }
             }
 
