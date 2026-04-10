@@ -45,6 +45,8 @@ model DeviceList {
   deviceId        String   @unique // The Client UUID
   status          String   @default("PENDING") // PENDING, ACTIVE
   lastSeen        DateTime @default(now())
+  displayTheme    String   @default("dark")
+  forceBlackScreen Boolean @default(false)
 
   // New metadata
   ipAddress       String?

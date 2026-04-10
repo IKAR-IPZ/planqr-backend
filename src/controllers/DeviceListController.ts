@@ -14,6 +14,13 @@ import {
     TabletNightModeSettings,
     updateTabletNightModeSettings
 } from '../services/tabletDisplaySettingsService';
+import {
+    DeviceDisplaySettings,
+    DEFAULT_DEVICE_DISPLAY_SETTINGS,
+    ensureDeviceListDisplaySettingsColumns,
+    isTabletDisplayTheme,
+    serializeDeviceDisplaySettings
+} from '../services/deviceDisplaySettingsService';
 
 const prisma = new PrismaClient();
 const NIGHT_MODE_TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -25,12 +32,18 @@ type DeviceConnectionStatus = 'PENDING' | 'ONLINE' | 'OFFLINE';
 const toTabletConfig = (
     device: DeviceList,
     nightMode: TabletNightModeSettings
-): TabletDeviceConfig => ({
-    status: device.status,
-    room: device.deviceClassroom,
-    secretUrl: device.deviceURL,
-    nightMode
-});
+): TabletDeviceConfig => {
+    const displaySettings = serializeDeviceDisplaySettings(device);
+
+    return {
+        status: device.status,
+        room: device.deviceClassroom,
+        secretUrl: device.deviceURL,
+        nightMode,
+        displayTheme: displaySettings.displayTheme,
+        forceBlackScreen: displaySettings.forceBlackScreen
+    };
+};
 
 const isValidNightModeTime = (value: string) => NIGHT_MODE_TIME_PATTERN.test(value);
 
@@ -57,9 +70,11 @@ const getDeviceConnectionStatus = (device: DeviceList): DeviceConnectionStatus =
 
 const serializeDevice = (device: DeviceList) => {
     const connectionStatus = getDeviceConnectionStatus(device);
+    const displaySettings = serializeDeviceDisplaySettings(device);
 
     return {
         ...device,
+        ...displaySettings,
         connectionStatus,
         isConnected: connectionStatus === 'ONLINE'
     };
@@ -102,6 +117,60 @@ const parseNightModeSettingsPayload = (
             blackScreenAfterScheduleEnd
         }
     };
+};
+
+const parseDeviceDisplaySettingsPatch = (
+    body: Request['body']
+): { settings?: Partial<DeviceDisplaySettings>; error?: string } => {
+    const settings: Partial<DeviceDisplaySettings> = {};
+
+    if (body && Object.prototype.hasOwnProperty.call(body, 'displayTheme')) {
+        if (!isTabletDisplayTheme(body.displayTheme)) {
+            return { error: 'Pole displayTheme musi mieć wartość light albo dark.' };
+        }
+
+        settings.displayTheme = body.displayTheme;
+    }
+
+    if (body && Object.prototype.hasOwnProperty.call(body, 'forceBlackScreen')) {
+        if (typeof body.forceBlackScreen !== 'boolean') {
+            return { error: 'Pole forceBlackScreen musi być wartością logiczną.' };
+        }
+
+        settings.forceBlackScreen = body.forceBlackScreen;
+    }
+
+    if (Object.keys(settings).length === 0) {
+        return {
+            error: 'Przekaż co najmniej jedno pole: displayTheme lub forceBlackScreen.'
+        };
+    }
+
+    return { settings };
+};
+
+const parseBatchDeviceDisplaySettingsPayload = (
+    body: Request['body']
+): { deviceIds?: number[]; displayTheme?: DeviceDisplaySettings['displayTheme']; error?: string } => {
+    if (!Array.isArray(body?.deviceIds) || body.deviceIds.length === 0) {
+        return { error: 'Pole deviceIds musi zawierać co najmniej jedno id.' };
+    }
+
+    if (!isTabletDisplayTheme(body.displayTheme)) {
+        return { error: 'Pole displayTheme musi mieć wartość light albo dark.' };
+    }
+
+    const normalizedDeviceIds = body.deviceIds
+        .map((value: unknown) => Number(value))
+        .filter((value: number) => Number.isInteger(value) && value > 0);
+
+    const deviceIds = Array.from(new Set<number>(normalizedDeviceIds));
+
+    if (deviceIds.length === 0) {
+        return { error: 'Pole deviceIds musi zawierać poprawne numery urządzeń.' };
+    }
+
+    return { deviceIds, displayTheme: body.displayTheme };
 };
 
 const buildDeviceCommand = (
@@ -149,12 +218,14 @@ export class DeviceListController {
 
     // GET /api/devices
     static async getDevices(req: Request, res: Response) {
+        await ensureDeviceListDisplaySettingsColumns(prisma);
         const devices = await prisma.deviceList.findMany();
         res.json(devices.map(serializeDevice));
     }
 
     // GET /api/devices/{id}
     static async getDevice(req: Request, res: Response) {
+        await ensureDeviceListDisplaySettingsColumns(prisma);
         const id = parseInt(req.params.id);
         const device = await prisma.deviceList.findUnique({ where: { id } });
         if (!device) {
@@ -166,6 +237,7 @@ export class DeviceListController {
 
     // GET /api/devices/pending/by-code?deviceId=123456
     static async getPendingDeviceByCode(req: Request, res: Response) {
+        await ensureDeviceListDisplaySettingsColumns(prisma);
         const deviceId = normalizePendingDeviceCode(req.query.deviceId);
 
         if (!PENDING_DEVICE_CODE_PATTERN.test(deviceId)) {
@@ -215,6 +287,7 @@ export class DeviceListController {
         }
 
         try {
+            await ensureDeviceListDisplaySettingsColumns(prisma);
             const nightMode = await updateTabletNightModeSettings(prisma, parsed.settings);
             const activeDevices = await prisma.deviceList.findMany({
                 where: { status: 'ACTIVE' }
@@ -246,8 +319,99 @@ export class DeviceListController {
         }
     }
 
+    // PATCH /api/devices/{id}/display-settings
+    static async updateDeviceDisplaySettings(req: Request, res: Response) {
+        const id = parseInt(req.params.id);
+        const parsed = parseDeviceDisplaySettingsPatch(req.body);
+
+        if (!parsed.settings) {
+            res.status(400).json({ message: parsed.error });
+            return;
+        }
+
+        await ensureDeviceListDisplaySettingsColumns(prisma);
+
+        const current = await prisma.deviceList.findUnique({ where: { id } });
+        if (!current) {
+            res.sendStatus(404);
+            return;
+        }
+
+        const updatedDevice = await prisma.deviceList.update({
+            where: { id },
+            data: parsed.settings
+        });
+
+        const nightMode = await getTabletNightModeSettings(prisma);
+        const delivered = sendTabletCommandToDevice(
+            updatedDevice.deviceId,
+            buildDeviceCommand(updatedDevice, 'admin-device-display-settings-updated', nightMode, {
+                fallbackType: 'config-updated',
+                hardReload: false
+            })
+        );
+
+        res.status(200).json({
+            message: 'Zapisano ustawienia wyświetlania tabletu.',
+            delivered,
+            device: serializeDevice(updatedDevice)
+        });
+    }
+
+    // PATCH /api/devices/display-settings/batch
+    static async batchUpdateDeviceDisplaySettings(req: Request, res: Response) {
+        const parsed = parseBatchDeviceDisplaySettingsPayload(req.body);
+
+        if (!parsed.deviceIds || !parsed.displayTheme) {
+            res.status(400).json({ message: parsed.error });
+            return;
+        }
+
+        await ensureDeviceListDisplaySettingsColumns(prisma);
+
+        await prisma.deviceList.updateMany({
+            where: {
+                id: {
+                    in: parsed.deviceIds
+                }
+            },
+            data: {
+                displayTheme: parsed.displayTheme
+            }
+        });
+
+        const updatedDevices = await prisma.deviceList.findMany({
+            where: {
+                id: {
+                    in: parsed.deviceIds
+                }
+            }
+        });
+
+        const nightMode = await getTabletNightModeSettings(prisma);
+        let delivered = 0;
+
+        for (const device of updatedDevices) {
+            delivered += sendTabletCommandToDevice(
+                device.deviceId,
+                buildDeviceCommand(device, 'admin-batch-device-theme-updated', nightMode, {
+                    fallbackType: 'config-updated',
+                    hardReload: false
+                })
+            );
+        }
+
+        res.status(200).json({
+            message: 'Zapisano ustawienia wyświetlania dla wybranych tabletów.',
+            delivered,
+            updatedCount: updatedDevices.length,
+            devices: updatedDevices.map(serializeDevice)
+        });
+    }
+
     // POST /api/devices
     static async createDevice(req: Request, res: Response) {
+        await ensureDeviceListDisplaySettingsColumns(prisma);
         const { deviceName, deviceClassroom, deviceModel, macAddress, deviceId } = req.body;
 
         // Generate device URL from name and classroom
@@ -294,6 +458,7 @@ export class DeviceListController {
 
     // PUT /api/devices/{id}
     static async updateDevice(req: Request, res: Response) {
+        await ensureDeviceListDisplaySettingsColumns(prisma);
         const id = parseInt(req.params.id);
         const { id: bodyId, ...data } = req.body;
 
@@ -371,6 +536,7 @@ export class DeviceListController {
 
     // DELETE /api/devices/{id}
     static async deleteDevice(req: Request, res: Response) {
+        await ensureDeviceListDisplaySettingsColumns(prisma);
         const id = parseInt(req.params.id);
         try {
             const current = await prisma.deviceList.findUnique({ where: { id } });
@@ -393,7 +559,9 @@ export class DeviceListController {
                         status: 'PENDING',
                         room: null,
                         secretUrl: null,
-                        nightMode
+                        nightMode,
+                        displayTheme: DEFAULT_DEVICE_DISPLAY_SETTINGS.displayTheme,
+                        forceBlackScreen: DEFAULT_DEVICE_DISPLAY_SETTINGS.forceBlackScreen
                     }
                 }
             );
@@ -427,6 +595,7 @@ export class DeviceListController {
 
     // POST /api/devices/{id}/reload
     static async reloadDevice(req: Request, res: Response) {
+        await ensureDeviceListDisplaySettingsColumns(prisma);
         const id = parseInt(req.params.id);
         const device = await prisma.deviceList.findUnique({ where: { id } });
 
@@ -457,6 +626,7 @@ export class DeviceListController {
 
     // POST /api/devices/{id}/request-display-profile
     static async requestDisplayProfile(req: Request, res: Response) {
+        await ensureDeviceListDisplaySettingsColumns(prisma);
         const id = parseInt(req.params.id);
         const device = await prisma.deviceList.findUnique({ where: { id } });
 
@@ -482,6 +652,7 @@ export class DeviceListController {
 
     // GET /api/devices/validate?room=...&secretUrl=...
     static async validateRoomAndSecretUrl(req: Request, res: Response) {
+        await ensureDeviceListDisplaySettingsColumns(prisma);
         const { room, secretUrl } = req.query;
 
         const device = await prisma.deviceList.findFirst({
