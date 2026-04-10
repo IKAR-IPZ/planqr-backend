@@ -104,7 +104,7 @@ const buildDeviceConfig = (
         secretUrl: device.deviceURL,
         nightMode,
         displayTheme: displaySettings.displayTheme,
-        forceBlackScreen: displaySettings.forceBlackScreen
+        blackScreenMode: displaySettings.blackScreenMode
     };
 };
 

@@ -45,7 +45,7 @@ model DeviceList {
   status          String   @default("PENDING") // PENDING, ACTIVE
   lastSeen        DateTime @default(now())
   displayTheme    String   @default("dark")
-  forceBlackScreen Boolean @default(false)
+  blackScreenMode String   @default("follow")
 
   // New metadata
   macAddress      String?

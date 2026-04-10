@@ -1,6 +1,6 @@
 import { Response } from 'express';
 import { TabletNightModeSettings } from './tabletDisplaySettingsService';
-import { TabletDisplayTheme } from './deviceDisplaySettingsService';
+import { DeviceBlackScreenMode, TabletDisplayTheme } from './deviceDisplaySettingsService';
 
 export interface TabletDeviceConfig {
     status: string;
@@ -8,7 +8,7 @@ export interface TabletDeviceConfig {
     secretUrl: string | null;
     nightMode: TabletNightModeSettings;
     displayTheme: TabletDisplayTheme;
-    forceBlackScreen: boolean;
+    blackScreenMode: DeviceBlackScreenMode;
 }
 
 export interface TabletCommand {

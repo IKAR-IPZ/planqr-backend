@@ -1,15 +1,16 @@
 import { DeviceList, PrismaClient } from '@prisma/client';
 
 export type TabletDisplayTheme = 'light' | 'dark';
+export type DeviceBlackScreenMode = 'follow' | 'on' | 'off';
 
 export interface DeviceDisplaySettings {
     displayTheme: TabletDisplayTheme;
-    forceBlackScreen: boolean;
+    blackScreenMode: DeviceBlackScreenMode;
 }
 
 export const DEFAULT_DEVICE_DISPLAY_SETTINGS: DeviceDisplaySettings = {
     displayTheme: 'dark',
-    forceBlackScreen: false
+    blackScreenMode: 'follow'
 };
 
 const DEVICE_LIST_TABLE = '"DeviceList"';
@@ -17,17 +18,22 @@ const DEVICE_LIST_TABLE = '"DeviceList"';
 export const isTabletDisplayTheme = (value: unknown): value is TabletDisplayTheme =>
     value === 'light' || value === 'dark';
 
+export const isDeviceBlackScreenMode = (value: unknown): value is DeviceBlackScreenMode =>
+    value === 'follow' || value === 'on' || value === 'off';
+
 export const normalizeDeviceDisplaySettings = (source: {
     displayTheme?: string | null;
+    blackScreenMode?: string | null;
     forceBlackScreen?: boolean | null;
 }): DeviceDisplaySettings => ({
     displayTheme: isTabletDisplayTheme(source.displayTheme)
         ? source.displayTheme
         : DEFAULT_DEVICE_DISPLAY_SETTINGS.displayTheme,
-    forceBlackScreen:
-        typeof source.forceBlackScreen === 'boolean'
-            ? source.forceBlackScreen
-            : DEFAULT_DEVICE_DISPLAY_SETTINGS.forceBlackScreen
+    blackScreenMode: isDeviceBlackScreenMode(source.blackScreenMode)
+        ? source.blackScreenMode
+        : source.forceBlackScreen === true
+            ? 'on'
+            : DEFAULT_DEVICE_DISPLAY_SETTINGS.blackScreenMode
 });
 
 export const serializeDeviceDisplaySettings = (device: DeviceList): DeviceDisplaySettings =>
@@ -41,6 +47,19 @@ export const ensureDeviceListDisplaySettingsColumns = async (prisma: PrismaClien
 
     await prisma.$executeRawUnsafe(`
         ALTER TABLE ${DEVICE_LIST_TABLE}
-        ADD COLUMN IF NOT EXISTS "forceBlackScreen" BOOLEAN NOT NULL DEFAULT FALSE
+        ADD COLUMN IF NOT EXISTS "blackScreenMode" VARCHAR(16) NOT NULL DEFAULT 'follow'
+    `);
+
+    await prisma.$executeRawUnsafe(`
+        UPDATE ${DEVICE_LIST_TABLE}
+        SET "blackScreenMode" = 'on'
+        WHERE "blackScreenMode" = 'follow'
+          AND EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_name = 'DeviceList'
+              AND column_name = 'forceBlackScreen'
+          )
+          AND "forceBlackScreen" = TRUE
     `);
 };

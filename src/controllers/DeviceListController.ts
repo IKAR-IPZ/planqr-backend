@@ -18,10 +18,12 @@ import {
     DeviceDisplaySettings,
     DEFAULT_DEVICE_DISPLAY_SETTINGS,
     ensureDeviceListDisplaySettingsColumns,
+    isDeviceBlackScreenMode,
     isTabletDisplayTheme,
     serializeDeviceDisplaySettings
 } from '../services/deviceDisplaySettingsService';
 import { generateDeviceSecret } from '../services/deviceSecretService';
+import { resolveEffectiveBlackScreen } from '../services/tabletBlackScreenService';
 
 const prisma = new PrismaClient();
 const NIGHT_MODE_TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -42,7 +44,7 @@ const toTabletConfig = (
         secretUrl: device.deviceURL,
         nightMode,
         displayTheme: displaySettings.displayTheme,
-        forceBlackScreen: displaySettings.forceBlackScreen
+        blackScreenMode: displaySettings.blackScreenMode
     };
 };
 
@@ -69,13 +71,23 @@ const getDeviceConnectionStatus = (device: DeviceList): DeviceConnectionStatus =
     return heartbeatAgeMs <= TABLET_OFFLINE_THRESHOLD_MS ? 'ONLINE' : 'OFFLINE';
 };
 
-const serializeDevice = (device: DeviceList) => {
+const serializeDevice = async (
+    device: DeviceList,
+    nightMode: TabletNightModeSettings
+) => {
     const connectionStatus = getDeviceConnectionStatus(device);
     const displaySettings = serializeDeviceDisplaySettings(device);
+    const blackScreenState = await resolveEffectiveBlackScreen({
+        room: device.deviceClassroom,
+        nightMode,
+        blackScreenMode: displaySettings.blackScreenMode
+    });
 
     return {
         ...device,
-        ...displaySettings,
+        displayTheme: displaySettings.displayTheme,
+        blackScreenMode: displaySettings.blackScreenMode,
+        ...blackScreenState,
         connectionStatus,
         isConnected: connectionStatus === 'ONLINE'
     };
@@ -133,17 +145,19 @@ const parseDeviceDisplaySettingsPatch = (
         settings.displayTheme = body.displayTheme;
     }
 
-    if (body && Object.prototype.hasOwnProperty.call(body, 'forceBlackScreen')) {
-        if (typeof body.forceBlackScreen !== 'boolean') {
-            return { error: 'Pole forceBlackScreen musi być wartością logiczną.' };
+    if (body && Object.prototype.hasOwnProperty.call(body, 'blackScreenMode')) {
+        if (!isDeviceBlackScreenMode(body.blackScreenMode)) {
+            return {
+                error: 'Pole blackScreenMode musi mieć wartość follow, on albo off.'
+            };
         }
 
-        settings.forceBlackScreen = body.forceBlackScreen;
+        settings.blackScreenMode = body.blackScreenMode;
     }
 
     if (Object.keys(settings).length === 0) {
         return {
-            error: 'Przekaż co najmniej jedno pole: displayTheme lub forceBlackScreen.'
+            error: 'Przekaż co najmniej jedno pole: displayTheme lub blackScreenMode.'
         };
     }
 
@@ -221,7 +235,8 @@ export class DeviceListController {
     static async getDevices(req: Request, res: Response) {
         await ensureDeviceListDisplaySettingsColumns(prisma);
         const devices = await prisma.deviceList.findMany();
-        res.json(devices.map(serializeDevice));
+        const nightMode = await getTabletNightModeSettings(prisma);
+        res.json(await Promise.all(devices.map((device) => serializeDevice(device, nightMode))));
     }
 
     // GET /api/devices/{id}
@@ -233,7 +248,8 @@ export class DeviceListController {
             res.sendStatus(404);
             return;
         }
-        res.json(serializeDevice(device));
+        const nightMode = await getTabletNightModeSettings(prisma);
+        res.json(await serializeDevice(device, nightMode));
     }
 
     // GET /api/devices/pending/by-code?deviceId=123456
@@ -262,7 +278,8 @@ export class DeviceListController {
             return;
         }
 
-        res.status(200).json(serializeDevice(device));
+        const nightMode = await getTabletNightModeSettings(prisma);
+        res.status(200).json(await serializeDevice(device, nightMode));
     }
 
     // GET /api/devices/display-settings
@@ -355,7 +372,7 @@ export class DeviceListController {
         res.status(200).json({
             message: 'Zapisano ustawienia wyświetlania tabletu.',
             delivered,
-            device: serializeDevice(updatedDevice)
+            device: await serializeDevice(updatedDevice, nightMode)
         });
     }
 
@@ -406,7 +423,9 @@ export class DeviceListController {
             message: 'Zapisano ustawienia wyświetlania dla wybranych tabletów.',
             delivered,
             updatedCount: updatedDevices.length,
-            devices: updatedDevices.map(serializeDevice)
+            devices: await Promise.all(
+                updatedDevices.map((device) => serializeDevice(device, nightMode))
+            )
         });
     }
 
@@ -526,7 +545,7 @@ export class DeviceListController {
                         secretUrl: null,
                         nightMode,
                         displayTheme: DEFAULT_DEVICE_DISPLAY_SETTINGS.displayTheme,
-                        forceBlackScreen: DEFAULT_DEVICE_DISPLAY_SETTINGS.forceBlackScreen
+                        blackScreenMode: DEFAULT_DEVICE_DISPLAY_SETTINGS.blackScreenMode
                     }
                 }
             );
