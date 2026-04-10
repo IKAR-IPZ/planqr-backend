@@ -14,4 +14,4 @@ RUN npm run build
 
 EXPOSE 9099
 
-CMD ["npm", "start"]
+CMD ["npm", "run", "start:container"]

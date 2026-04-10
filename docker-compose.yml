@@ -11,6 +11,6 @@ services:
       DISABLE_HTTPS: "${DISABLE_HTTPS}"
       DEV_AUTH_BYPASS: "${DEV_AUTH_BYPASS:-false}"
     volumes:
-      - /home/user/planqr-secrets/certs:/certs:ro
-    command: sh -c "npx prisma db push && npm start"
+      - /home/user/planqr-secrets/certs:/app/certs:ro
+    command: npm run start:container
     restart: always

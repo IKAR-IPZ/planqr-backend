@@ -7,14 +7,15 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// User model for tracking logins and roles
-model User {
-  id          String    @id @default(uuid())
-  username    String    @unique
-  role        String    @default("user")
-  adminSource String    @default("database")
-  createdAt   DateTime? @default(now())
-  updatedAt   DateTime? @updatedAt
+// Admin model: if a record exists, the account is an administrator
+model Admin {
+  id          String   @id @default(uuid())
+  username    String   @unique
+  adminSource String   @default("database")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("admins")
 }
 
 model Message {

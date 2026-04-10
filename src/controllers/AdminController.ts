@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { PrismaClient } from '@prisma/client';
 import { Response } from 'express';
 import { AuthRequest } from '../middlewares/authMiddleware';
@@ -5,35 +6,34 @@ import { AuthRequest } from '../middlewares/authMiddleware';
 const prisma = new PrismaClient();
 const LDAP_LOGIN_PATTERN = /^[a-z0-9._-]{3,64}$/i;
 
-const normalizeUsername = (value: string) => value.trim().toLowerCase();
-
-const toAdminResponse = (user: {
+interface AdminRecord {
     id: string;
     username: string;
-    role: string;
     adminSource: string;
-    createdAt: Date | null;
-    updatedAt: Date | null;
-}, currentLogin?: string) => ({
-    id: user.id,
-    username: user.username,
-    role: user.role,
-    adminSource: user.adminSource,
-    createdAt: user.createdAt,
-    updatedAt: user.updatedAt,
-    isCurrentUser: currentLogin === user.username,
-    canBeRemovedFromPanel: user.adminSource === 'panel' && currentLogin !== user.username
+    createdAt: Date;
+    updatedAt: Date;
+}
+
+const normalizeUsername = (value: string) => value.trim().toLowerCase();
+
+const toAdminResponse = (admin: AdminRecord, currentLogin?: string) => ({
+    id: admin.id,
+    username: admin.username,
+    adminSource: admin.adminSource,
+    createdAt: admin.createdAt,
+    updatedAt: admin.updatedAt,
+    isCurrentUser: currentLogin === admin.username,
+    canBeRemovedFromPanel: admin.adminSource === 'panel' && currentLogin !== admin.username
 });
 
 export class AdminController {
     static async listAdmins(req: AuthRequest, res: Response) {
         try {
-            const admins = await prisma.user.findMany({
-                where: { role: { contains: 'admin', mode: 'insensitive' } },
-                orderBy: [
-                    { username: 'asc' }
-                ]
-            });
+            const admins = await prisma.$queryRaw<AdminRecord[]>`
+                SELECT "id", "username", "adminSource", "createdAt", "updatedAt"
+                FROM "admins"
+                ORDER BY "username" ASC
+            `;
 
             res.json({
                 admins: admins.map((admin) => toAdminResponse(admin, req.user?.login))
@@ -60,35 +60,34 @@ export class AdminController {
         }
 
         try {
-            const existingUser = await prisma.user.findUnique({
-                where: { username }
-            });
+            const [existingAdmin] = await prisma.$queryRaw<AdminRecord[]>`
+                SELECT "id", "username", "adminSource", "createdAt", "updatedAt"
+                FROM "admins"
+                WHERE "username" = ${username}
+                LIMIT 1
+            `;
 
-            const admin = existingUser
-                ? await prisma.user.update({
-                    where: { username },
-                    data: { role: 'admin' }
-                })
-                : await prisma.user.create({
-                    data: {
-                        username,
-                        role: 'admin',
-                        adminSource: 'panel'
-                    }
+            if (existingAdmin) {
+                res.status(200).json({
+                    message: 'To konto jest już administratorem.',
+                    admin: toAdminResponse(existingAdmin, req.user?.login)
                 });
+                return;
+            }
 
-            const alreadyAdmin = Boolean(existingUser?.role.toLowerCase().includes('admin'));
-            res.status(existingUser ? 200 : 201).json({
-                message: !existingUser
-                    ? 'Dodano nowego administratora z poziomu panelu.'
-                    : alreadyAdmin
-                        ? 'Użytkownik już miał uprawnienia administratora.'
-                        : 'Nadano uprawnienia administratora istniejącemu użytkownikowi.',
+            const [admin] = await prisma.$queryRaw<AdminRecord[]>`
+                INSERT INTO "admins" ("id", "username", "adminSource", "createdAt", "updatedAt")
+                VALUES (${randomUUID()}, ${username}, 'panel', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                RETURNING "id", "username", "adminSource", "createdAt", "updatedAt"
+            `;
+
+            res.status(201).json({
+                message: 'Dodano administratora.',
                 admin: toAdminResponse(admin, req.user?.login)
             });
         } catch (error) {
             console.error('Error creating admin:', error);
-            res.status(500).json({ message: 'Nie udało się nadać uprawnień administratora.' });
+            res.status(500).json({ message: 'Nie udało się dodać administratora.' });
         }
     }
 
@@ -101,11 +100,14 @@ export class AdminController {
         }
 
         try {
-            const admin = await prisma.user.findUnique({
-                where: { username }
-            });
+            const [admin] = await prisma.$queryRaw<AdminRecord[]>`
+                SELECT "id", "username", "adminSource", "createdAt", "updatedAt"
+                FROM "admins"
+                WHERE "username" = ${username}
+                LIMIT 1
+            `;
 
-            if (!admin || !admin.role.toLowerCase().includes('admin')) {
+            if (!admin) {
                 res.status(404).json({ message: 'Administrator nie został znaleziony.' });
                 return;
             }
@@ -116,28 +118,30 @@ export class AdminController {
             }
 
             if (req.user?.login === username) {
-                res.status(409).json({ message: 'Nie możesz odebrać uprawnień samemu sobie z poziomu panelu.' });
+                res.status(409).json({ message: 'Nie możesz usunąć własnego konta administratora z poziomu panelu.' });
                 return;
             }
 
-            const adminCount = await prisma.user.count({
-                where: { role: { contains: 'admin', mode: 'insensitive' } }
-            });
+            const [adminCountRow] = await prisma.$queryRaw<Array<{ count: number }>>`
+                SELECT CAST(COUNT(*) AS INTEGER) AS "count"
+                FROM "admins"
+            `;
+            const adminCount = adminCountRow?.count ?? 0;
 
             if (adminCount <= 1) {
                 res.status(409).json({ message: 'Nie można usunąć ostatniego administratora.' });
                 return;
             }
 
-            await prisma.user.update({
-                where: { username },
-                data: { role: 'user' }
-            });
+            await prisma.$executeRaw`
+                DELETE FROM "admins"
+                WHERE "username" = ${username}
+            `;
 
-            res.status(200).json({ message: 'Uprawnienia administratora zostały odebrane.' });
+            res.status(200).json({ message: 'Administrator został usunięty z listy.' });
         } catch (error) {
             console.error('Error deleting admin:', error);
-            res.status(500).json({ message: 'Nie udało się odebrać uprawnień administratora.' });
+            res.status(500).json({ message: 'Nie udało się usunąć administratora.' });
         }
     }
 }
