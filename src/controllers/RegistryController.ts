@@ -1,10 +1,15 @@
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { DeviceList, PrismaClient } from '@prisma/client';
 import { registerTabletStream } from '../services/tabletStreamService';
 import {
     DEFAULT_TABLET_NIGHT_MODE_SETTINGS,
     getTabletNightModeSettings
 } from '../services/tabletDisplaySettingsService';
+import {
+    ensureDeviceListDisplaySettingsColumns,
+    serializeDeviceDisplaySettings
+} from '../services/deviceDisplaySettingsService';
+import { generateDeviceSecret } from '../services/deviceSecretService';
 
 const prisma = new PrismaClient();
 const MAX_REASONABLE_DIMENSION_PX = 20000;
@@ -83,6 +88,26 @@ const parseDisplayProfilePayload = (
     };
 };
 
+const buildDeviceConfig = (
+    device: DeviceList | null,
+    nightMode: Awaited<ReturnType<typeof loadNightModeSettings>>
+) => {
+    if (!device || device.status !== 'ACTIVE') {
+        return null;
+    }
+
+    const displaySettings = serializeDeviceDisplaySettings(device);
+
+    return {
+        department: device.deviceClassroom,
+        room: device.deviceClassroom,
+        secretUrl: device.deviceURL,
+        nightMode,
+        displayTheme: displaySettings.displayTheme,
+        blackScreenMode: displaySettings.blackScreenMode
+    };
+};
+
 export class RegistryController {
 
     // GET /api/registry/stream/{deviceId}
@@ -99,6 +124,7 @@ export class RegistryController {
 
     // POST /api/registry/handshake
     static async handshake(req: Request, res: Response) {
+        await ensureDeviceListDisplaySettingsColumns(prisma);
         const { deviceId } = req.body;
 
         if (!deviceId) {
@@ -110,52 +136,22 @@ export class RegistryController {
         });
 
         if (!device) {
-            // Extract Metadata
-            const ipAddress = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress;
-            const userAgent = req.headers['user-agent'];
-            let deviceModel = null;
-
-            if (userAgent) {
-                const match = userAgent.match(/\((.*?)\)/);
-                if (match && match[1]) {
-                    deviceModel = match[1];
-                }
-            }
-
             // New device, create as PENDING
             device = await prisma.deviceList.create({
                 data: {
                     deviceId,
                     status: 'PENDING',
-                    deviceName: null,
                     deviceClassroom: null,
-                    deviceURL: null,
-                    lastSeen: new Date(),
-                    ipAddress,
-                    userAgent,
-                    deviceModel
+                    deviceURL: generateDeviceSecret(),
+                    lastSeen: new Date()
                 }
             });
         } else {
-            // Update lastSeen and metadata for existing device
-            const ipAddress = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress;
-            const userAgent = req.headers['user-agent'];
-            let deviceModel = device.deviceModel; // Keep existing if not found? Or update? Let's update.
-
-            if (userAgent) {
-                const match = userAgent.match(/\((.*?)\)/);
-                if (match && match[1]) {
-                    deviceModel = match[1];
-                }
-            }
-
-            await prisma.deviceList.update({
+            device = await prisma.deviceList.update({
                 where: { deviceId },
                 data: {
                     lastSeen: new Date(),
-                    ipAddress,
-                    userAgent,
-                    deviceModel
+                    ...(device.deviceURL ? {} : { deviceURL: generateDeviceSecret() })
                 }
             });
         }
@@ -165,17 +161,13 @@ export class RegistryController {
         // Return status
         return res.json({
             status: device.status,
-            config: device.status === 'ACTIVE' ? {
-                department: device.deviceClassroom, // Simplified for now, assumming room stores building too or we fix schema later
-                room: device.deviceClassroom,
-                secretUrl: device.deviceURL,
-                nightMode
-            } : null
+            config: buildDeviceConfig(device, nightMode)
         });
     }
 
     // POST /api/registry/display-profile
     static async updateDisplayProfile(req: Request, res: Response) {
+        await ensureDeviceListDisplaySettingsColumns(prisma);
         const { deviceId } = req.body;
 
         if (typeof deviceId !== 'string' || !deviceId.trim()) {
@@ -213,6 +205,7 @@ export class RegistryController {
 
     // GET /api/registry/status/:deviceId
     static async checkStatus(req: Request, res: Response) {
+        await ensureDeviceListDisplaySettingsColumns(prisma);
         const { deviceId } = req.params;
 
         const device = await prisma.deviceList.findUnique({
@@ -234,14 +227,7 @@ export class RegistryController {
 
         return res.json({
             status: device.status,
-            config: device.status === 'ACTIVE' ? {
-                // In legacy logic "room" often contained "Building/Room". 
-                // We'll need to parse this in frontend or store separately.
-                // For now, returning as is.
-                room: device.deviceClassroom,
-                secretUrl: device.deviceURL,
-                nightMode
-            } : null
+            config: buildDeviceConfig(device, nightMode)
         });
     }
 }

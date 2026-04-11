@@ -1,8 +1,54 @@
+import axios from 'axios';
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middlewares/authMiddleware';
+import { env } from '../config/env';
 
 const prisma = new PrismaClient();
+const ROOM_SEARCH_URL = env.ZUT_SCHEDULE_STUDENT_URL.replace(
+    /schedule_student\.php$/i,
+    'schedule.php'
+);
+
+const sanitizeRoomValue = (value: string) => value.trim().replace(/\s+/g, ' ');
+const normalizeRoomValue = (value: string) => sanitizeRoomValue(value).toUpperCase();
+
+const fetchMatchingRooms = async (query: string) => {
+    const response = await axios.get(ROOM_SEARCH_URL, {
+        params: {
+            kind: 'room',
+            query: sanitizeRoomValue(query)
+        },
+        headers: { 'User-Agent': 'Mozilla/5.0' }
+    });
+
+    const data = response.data;
+    return Array.isArray(data)
+        ? Array.from(
+            new Set(
+                data
+                    .filter((item: { item?: unknown }) => typeof item?.item === 'string')
+                    .map((item: { item: string }) => sanitizeRoomValue(item.item))
+                    .filter(Boolean)
+            )
+        )
+        : [];
+};
+
+const isValidRoom = async (roomName: string) => {
+    const normalizedRoom = normalizeRoomValue(roomName);
+    if (!normalizedRoom) {
+        return false;
+    }
+
+    try {
+        const rooms = await fetchMatchingRooms(roomName);
+        return rooms.some((room) => normalizeRoomValue(room) === normalizedRoom);
+    } catch (error) {
+        console.error('Failed to validate room for message update:', error);
+        return false;
+    }
+};
 
 export class MessageController {
 
@@ -81,6 +127,10 @@ export class MessageController {
         const id = parseInt(req.params.id);
         const nextBody =
             typeof req.body?.body === 'string' ? req.body.body.trim() : '';
+        const nextRoom =
+            typeof req.body?.newRoom === 'string'
+                ? sanitizeRoomValue(req.body.newRoom)
+                : '';
 
         try {
             if (!req.user) {
@@ -93,8 +143,8 @@ export class MessageController {
                 return;
             }
 
-            if (!nextBody) {
-                res.status(400).json({ message: 'Message body is required' });
+            if (!nextBody && !nextRoom) {
+                res.status(400).json({ message: 'Message body or newRoom is required' });
                 return;
             }
 
@@ -105,15 +155,37 @@ export class MessageController {
                 return;
             }
 
-            if (existingMessage.isRoomChange) {
-                res.status(409).json({
-                    message: 'Room change messages can only be managed from the room change flow',
-                });
+            if (!req.user.isAdmin && existingMessage.login !== req.user.login) {
+                res.status(403).json({ message: 'You can only edit your own messages' });
                 return;
             }
 
-            if (!req.user.isAdmin && existingMessage.login !== req.user.login) {
-                res.status(403).json({ message: 'You can only edit your own messages' });
+            if (existingMessage.isRoomChange) {
+                if (!nextRoom) {
+                    res.status(400).json({ message: 'newRoom is required for room change messages' });
+                    return;
+                }
+
+                const roomExists = await isValidRoom(nextRoom);
+                if (!roomExists) {
+                    res.status(400).json({ message: 'Selected room does not exist in schedule data' });
+                    return;
+                }
+
+                const updatedMessage = await prisma.message.update({
+                    where: { id },
+                    data: {
+                        newRoom: nextRoom,
+                        body: `Zajęcia przeniesione do sali: ${nextRoom}`,
+                    },
+                });
+
+                res.status(200).json(updatedMessage);
+                return;
+            }
+
+            if (!nextBody) {
+                res.status(400).json({ message: 'Message body is required' });
                 return;
             }
 
