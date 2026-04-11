@@ -7,14 +7,15 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// User model for tracking logins and roles
-model User {
-  id          String    @id @default(uuid())
-  username    String    @unique
-  role        String    @default("user")
-  adminSource String    @default("database")
-  createdAt   DateTime? @default(now())
-  updatedAt   DateTime? @updatedAt
+// Admin model: if a record exists, the account is an administrator
+model Admin {
+  id          String   @id @default(uuid())
+  username    String   @unique
+  adminSource String   @default("database")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("admins")
 }
 
 model Message {
@@ -38,17 +39,15 @@ model Message {
 
 model DeviceList {
   id              Int      @id @default(autoincrement())
-  deviceName      String?
   deviceClassroom String?
   deviceURL       String?  
   deviceId        String   @unique // The Client UUID
   status          String   @default("PENDING") // PENDING, ACTIVE
   lastSeen        DateTime @default(now())
+  displayTheme    String   @default("dark")
+  blackScreenMode String   @default("follow")
 
   // New metadata
-  ipAddress       String?
-  deviceModel     String?
-  userAgent       String?
   macAddress      String?
   viewportWidthPx Int?
   viewportHeightPx Int?

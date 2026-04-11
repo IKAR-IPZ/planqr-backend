@@ -1,8 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
-const ROLE_SPLIT_PATTERN = /[,\s|;:+]+/;
-let hasLoggedRoleLookupError = false;
+let hasLoggedAdminLookupError = false;
 
 export interface AccessSignals {
     title?: string;
@@ -29,33 +28,6 @@ export interface AuthenticatedUser extends IdentityClaims, AccessProfile {
 
 const trimText = (value?: string) => value?.trim() ?? '';
 
-const normalizeValue = (value: string) =>
-    value
-        .trim()
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/\p{Diacritic}/gu, '');
-
-const mapRoleToken = (value: string) => {
-    switch (value) {
-        case 'administrator':
-        case 'admin':
-            return 'admin';
-        default:
-            return value;
-    }
-};
-
-const parseRoleTokens = (value?: string | null) =>
-    new Set(
-        (value ?? '')
-            .replace(/[_-]/g, ' ')
-            .split(ROLE_SPLIT_PATTERN)
-            .map(normalizeValue)
-            .map(mapRoleToken)
-            .filter((token) => token === 'admin')
-    );
-
 export const buildDisplayName = (givenName?: string, surname?: string) =>
     [trimText(surname), trimText(givenName)].filter(Boolean).join(' ').trim();
 
@@ -71,21 +43,23 @@ const buildResolvedDisplayName = (identity: IdentityClaims) => {
     return buildDisplayName(identity.givenName, identity.surname);
 };
 
-const getStoredRoles = async (username: string) => {
+const hasStoredAdminAccess = async (username: string) => {
     try {
-        const user = await prisma.user.findUnique({
-            where: { username },
-            select: { role: true }
-        });
+        const [admin] = await prisma.$queryRaw<Array<{ id: string }>>`
+            SELECT "id"
+            FROM "admins"
+            WHERE "username" = ${username}
+            LIMIT 1
+        `;
 
-        return parseRoleTokens(user?.role);
+        return Boolean(admin);
     } catch (error) {
-        if (!hasLoggedRoleLookupError) {
-            hasLoggedRoleLookupError = true;
-            console.error('[Auth] Failed to read User roles from database.', error);
+        if (!hasLoggedAdminLookupError) {
+            hasLoggedAdminLookupError = true;
+            console.error('[Auth] Failed to read Admin access from database.', error);
         }
 
-        return new Set<string>();
+        return false;
     }
 };
 
@@ -93,13 +67,11 @@ export const resolveAccessProfile = async (
     username: string,
     signals?: AccessSignals
 ): Promise<AccessProfile> => {
-    const storedRoles = await getStoredRoles(username);
-    const roles = new Set<string>(storedRoles);
-    const isAdmin = roles.has('admin');
+    const isAdmin = await hasStoredAdminAccess(username);
     const isStudent = signals?.title === 'student';
 
     return {
-        roles: Array.from(roles).sort(),
+        roles: isAdmin ? ['admin'] : [],
         isAdmin,
         canAccessLecturerPlan: !isStudent,
     };

@@ -37,11 +37,14 @@ router.use(requireAdmin);
  *         description: Device not found
  */
 router.get('/validate', DeviceListController.validateRoomAndSecretUrl);
+router.get('/pending/by-code', DeviceListController.getPendingDeviceByCode);
 router.get('/display-settings', DeviceListController.getDisplaySettings);
 router.put('/display-settings', DeviceListController.updateDisplaySettings);
+router.patch('/display-settings/batch', DeviceListController.batchUpdateDeviceDisplaySettings);
 router.post('/reload-all', DeviceListController.reloadAllTablets);
 router.post('/:id/request-display-profile', DeviceListController.requestDisplayProfile);
 router.post('/:id/reload', DeviceListController.reloadDevice);
+router.patch('/:id/display-settings', DeviceListController.updateDeviceDisplaySettings);
 
 /**
  * @swagger
@@ -83,15 +86,13 @@ router.get('/:id', DeviceListController.getDevice);
  *     tags: [Devices]
  *     requestBody:
  *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               deviceName:
- *                 type: string
- *               deviceClassroom:
- *                 type: string
+    *       content:
+    *         application/json:
+    *           schema:
+    *             type: object
+    *             properties:
+    *               deviceClassroom:
+    *                 type: string
  *     responses:
  *       201:
  *         description: Device created

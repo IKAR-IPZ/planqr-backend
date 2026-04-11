@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { MessageController } from '../controllers/MessageController';
-import { requireAdmin, requireLecturerAccess } from '../middlewares/authMiddleware';
+import { requireAdmin, requireAuth, requireLecturerAccess } from '../middlewares/authMiddleware';
 
 const router = Router();
 
@@ -107,7 +107,7 @@ router.get('/:lessonId', MessageController.getMessages);
  *       409:
  *         description: Room change messages are not editable
  */
-router.patch('/:id', requireLecturerAccess, MessageController.updateMessage);
+router.patch('/:id', requireAuth, MessageController.updateMessage);
 
 /**
  * @swagger
@@ -125,6 +125,6 @@ router.patch('/:id', requireLecturerAccess, MessageController.updateMessage);
  *       204:
  *         description: Message deleted
  */
-router.delete('/:id', requireLecturerAccess, MessageController.deleteMessage);
+router.delete('/:id', requireAuth, MessageController.deleteMessage);
 
 export default router;
