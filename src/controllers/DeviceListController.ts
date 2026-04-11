@@ -1,7 +1,6 @@
 import { Request, Response } from 'express';
 import { DeviceList, PrismaClient } from '@prisma/client';
 import {
-    broadcastTabletCommand,
     buildTabletPath,
     getConnectedTabletCount,
     hasConnectedTabletStream,
@@ -166,13 +165,9 @@ const parseDeviceDisplaySettingsPatch = (
 
 const parseBatchDeviceDisplaySettingsPayload = (
     body: Request['body']
-): { deviceIds?: number[]; displayTheme?: DeviceDisplaySettings['displayTheme']; error?: string } => {
+): { deviceIds?: number[]; settings?: Partial<DeviceDisplaySettings>; error?: string } => {
     if (!Array.isArray(body?.deviceIds) || body.deviceIds.length === 0) {
         return { error: 'Pole deviceIds musi zawierać co najmniej jedno id.' };
-    }
-
-    if (!isTabletDisplayTheme(body.displayTheme)) {
-        return { error: 'Pole displayTheme musi mieć wartość light albo dark.' };
     }
 
     const normalizedDeviceIds = body.deviceIds
@@ -185,7 +180,33 @@ const parseBatchDeviceDisplaySettingsPayload = (
         return { error: 'Pole deviceIds musi zawierać poprawne numery urządzeń.' };
     }
 
-    return { deviceIds, displayTheme: body.displayTheme };
+    const settings: Partial<DeviceDisplaySettings> = {};
+
+    if (body && Object.prototype.hasOwnProperty.call(body, 'displayTheme')) {
+        if (!isTabletDisplayTheme(body.displayTheme)) {
+            return { error: 'Pole displayTheme musi mieć wartość light albo dark.' };
+        }
+
+        settings.displayTheme = body.displayTheme;
+    }
+
+    if (body && Object.prototype.hasOwnProperty.call(body, 'blackScreenMode')) {
+        if (!isDeviceBlackScreenMode(body.blackScreenMode)) {
+            return {
+                error: 'Pole blackScreenMode musi mieć wartość follow, on albo off.'
+            };
+        }
+
+        settings.blackScreenMode = body.blackScreenMode;
+    }
+
+    if (Object.keys(settings).length === 0) {
+        return {
+            error: 'Przekaż co najmniej jedno pole: displayTheme lub blackScreenMode.'
+        };
+    }
+
+    return { deviceIds, settings };
 };
 
 const buildDeviceCommand = (
@@ -380,7 +401,7 @@ export class DeviceListController {
     static async batchUpdateDeviceDisplaySettings(req: Request, res: Response) {
         const parsed = parseBatchDeviceDisplaySettingsPayload(req.body);
 
-        if (!parsed.deviceIds || !parsed.displayTheme) {
+        if (!parsed.deviceIds || !parsed.settings) {
             res.status(400).json({ message: parsed.error });
             return;
         }
@@ -393,9 +414,7 @@ export class DeviceListController {
                     in: parsed.deviceIds
                 }
             },
-            data: {
-                displayTheme: parsed.displayTheme
-            }
+            data: parsed.settings
         });
 
         const updatedDevices = await prisma.deviceList.findMany({
@@ -412,7 +431,7 @@ export class DeviceListController {
         for (const device of updatedDevices) {
             delivered += sendTabletCommandToDevice(
                 device.deviceId,
-                buildDeviceCommand(device, 'admin-batch-device-theme-updated', nightMode, {
+                buildDeviceCommand(device, 'admin-batch-device-display-settings-updated', nightMode, {
                     fallbackType: 'config-updated',
                     hardReload: false
                 })
@@ -559,21 +578,29 @@ export class DeviceListController {
 
     // POST /api/devices/reload-all
     static async reloadAllTablets(req: Request, res: Response) {
+        await ensureDeviceListDisplaySettingsColumns(prisma);
         const reason = typeof req.body?.reason === 'string'
             ? req.body.reason
             : 'admin-broadcast-reload';
+        const nightMode = await getTabletNightModeSettings(prisma);
+        const devices = await prisma.deviceList.findMany();
 
-        const delivered = broadcastTabletCommand({
-            type: 'reload',
-            issuedAt: new Date().toISOString(),
-            hardReload: true,
-            reason
-        });
+        let delivered = 0;
+        for (const device of devices) {
+            delivered += sendTabletCommandToDevice(
+                device.deviceId,
+                buildDeviceCommand(device, reason, nightMode, {
+                    fallbackType: 'reload',
+                    hardReload: true
+                })
+            );
+        }
 
         res.status(200).json({
-            message: 'Wysłano sygnał przeładowania do podłączonych tabletów.',
+            message: 'Wysłano sygnał przeładowania do wszystkich znanych tabletów.',
             delivered,
-            connectedClients: getConnectedTabletCount()
+            connectedClients: getConnectedTabletCount(),
+            targetedDevices: devices.length
         });
     }
 
