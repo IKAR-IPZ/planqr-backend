@@ -15,6 +15,9 @@ DECLARE
   source_table REGCLASS;
   expected_admin_count INTEGER := 0;
   migrated_admin_count INTEGER := 0;
+  source_admin_source_expr TEXT := '''database''';
+  source_created_at_expr TEXT := 'CURRENT_TIMESTAMP';
+  source_updated_at_expr TEXT := 'CURRENT_TIMESTAMP';
 BEGIN
   source_table := COALESCE(
     to_regclass('public."User"'),
@@ -31,14 +34,49 @@ BEGIN
   )
   INTO expected_admin_count;
 
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = source_table::TEXT
+      AND column_name = 'adminSource'
+  ) THEN
+    source_admin_source_expr := 'COALESCE("adminSource", ''database'')';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = source_table::TEXT
+      AND column_name = 'createdAt'
+  ) THEN
+    source_created_at_expr := 'COALESCE("createdAt", CURRENT_TIMESTAMP)';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = source_table::TEXT
+      AND column_name = 'updatedAt'
+  ) THEN
+    source_updated_at_expr := 'COALESCE("updatedAt", "createdAt", CURRENT_TIMESTAMP)';
+  ELSIF source_created_at_expr <> 'CURRENT_TIMESTAMP' THEN
+    source_updated_at_expr := 'COALESCE("createdAt", CURRENT_TIMESTAMP)';
+  END IF;
+
   EXECUTE format(
     'INSERT INTO public.admins ("id", "username", "adminSource", "createdAt", "updatedAt") ' ||
-    'SELECT "id", "username", COALESCE("adminSource", ''database''), COALESCE("createdAt", CURRENT_TIMESTAMP), COALESCE("updatedAt", "createdAt", CURRENT_TIMESTAMP) ' ||
+    'SELECT "id", "username", %s, %s, %s ' ||
     'FROM %s WHERE LOWER(COALESCE("role", '''')) LIKE ''%%admin%%'' ' ||
     'ON CONFLICT ("username") DO UPDATE SET ' ||
     '"adminSource" = EXCLUDED."adminSource", ' ||
     '"createdAt" = EXCLUDED."createdAt", ' ||
     '"updatedAt" = EXCLUDED."updatedAt"',
+    source_admin_source_expr,
+    source_created_at_expr,
+    source_updated_at_expr,
     source_table
   );
 
