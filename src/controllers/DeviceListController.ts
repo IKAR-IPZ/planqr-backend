@@ -3,7 +3,6 @@ import { DeviceList, PrismaClient } from '@prisma/client';
 import {
     buildTabletPath,
     getConnectedTabletCount,
-    hasConnectedTabletStream,
     sendTabletCommandToDevice,
     TabletCommand,
     TabletDeviceConfig
@@ -22,14 +21,12 @@ import {
     serializeDeviceDisplaySettings
 } from '../services/deviceDisplaySettingsService';
 import { generateDeviceSecret } from '../services/deviceSecretService';
+import { getDeviceConnectionStatus } from '../services/deviceStatusService';
 import { resolveEffectiveBlackScreen } from '../services/tabletBlackScreenService';
 
 const prisma = new PrismaClient();
 const NIGHT_MODE_TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
 const PENDING_DEVICE_CODE_PATTERN = /^\d{6}$/;
-const TABLET_OFFLINE_THRESHOLD_MS = 75 * 1000;
-
-type DeviceConnectionStatus = 'PENDING' | 'ONLINE' | 'OFFLINE';
 
 const toTabletConfig = (
     device: DeviceList,
@@ -55,19 +52,6 @@ const normalizePendingDeviceCode = (value: unknown) => {
     }
 
     return value.replace(/\s+/g, '').trim();
-};
-
-const getDeviceConnectionStatus = (device: DeviceList): DeviceConnectionStatus => {
-    if (device.status !== 'ACTIVE') {
-        return 'PENDING';
-    }
-
-    if (hasConnectedTabletStream(device.deviceId)) {
-        return 'ONLINE';
-    }
-
-    const heartbeatAgeMs = Date.now() - device.lastSeen.getTime();
-    return heartbeatAgeMs <= TABLET_OFFLINE_THRESHOLD_MS ? 'ONLINE' : 'OFFLINE';
 };
 
 const serializeDevice = async (

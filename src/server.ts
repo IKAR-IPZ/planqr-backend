@@ -12,6 +12,7 @@ import registryRoutes from "./routes/registryRoutes";
 import lessonRoutes from "./routes/lessonRoutes";
 import attendanceRoutes from "./routes/attendanceRoutes";
 import adminRoutes from "./routes/adminRoutes";
+import statusRoutes from "./routes/statusRoutes";
 import cookieParser from "cookie-parser";
 import https from "https";
 import fs from "fs";
@@ -42,6 +43,7 @@ app.use('/api/admins', adminRoutes);
 app.use('/api/registry', registryRoutes);
 app.use('/api/Lesson', lessonRoutes);
 app.use('/api/attendance', attendanceRoutes);
+app.use(statusRoutes);
 
 // Start background jobs
 // startCleanupJob();

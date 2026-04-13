@@ -1,16 +1,39 @@
 services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: planqr_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d planqr_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
   backend:
     build:
       context: .
     network_mode: "host"
     environment:
       PORT: "${PORT}"
-      DATABASE_URL: "${DATABASE_URL}"
+      DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/planqr_db?schema=public"
       LDAP_URL: "${LDAP_URL}"
       LDAP_DN: "${LDAP_DN}"
       DISABLE_HTTPS: "${DISABLE_HTTPS}"
       DEV_AUTH_BYPASS: "${DEV_AUTH_BYPASS:-false}"
     volumes:
       - /home/user/planqr-secrets/certs:/app/certs:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
     command: npm run start:container
     restart: always
+
+volumes:
+  postgres_data:
