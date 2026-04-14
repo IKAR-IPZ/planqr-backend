@@ -3,6 +3,7 @@ import { env } from '../config/env';
 
 export class ZutServices {
     private readonly BASE_URL = env.ZUT_SCHEDULE_STUDENT_URL;
+    private readonly REQUEST_TIMEOUT_MS = 5000;
 
     async getSchedule(id: string, kind: string, startParam?: string, endParam?: string) {
         try {
@@ -65,7 +66,8 @@ export class ZutServices {
 
             const response = await axios.get(this.BASE_URL, {
                 params,
-                headers: { 'User-Agent': 'Mozilla/5.0' }
+                headers: { 'User-Agent': 'Mozilla/5.0' },
+                timeout: this.REQUEST_TIMEOUT_MS
             });
 
             return response.data;

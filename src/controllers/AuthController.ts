@@ -50,9 +50,7 @@ export class AuthController {
     }
 
     static async login(req: Request, res: Response) {
-        console.log(
-            `Login request received. NODE_ENV=${env.NODE_ENV}, DEV_AUTH_BYPASS=${env.DEV_AUTH_BYPASS}, Origin=${req.headers.origin}, Cookies=${JSON.stringify(req.cookies)}`
-        );
+        console.log(`Login request received. NODE_ENV=${env.NODE_ENV}, DEV_AUTH_BYPASS=${env.DEV_AUTH_BYPASS}, Origin=${req.headers.origin}`);
         try {
             const username = typeof req.body?.username === 'string' ? req.body.username.trim() : '';
             const password = typeof req.body?.password === 'string' ? req.body.password : '';

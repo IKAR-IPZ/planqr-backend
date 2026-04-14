@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { AuthController } from '../controllers/AuthController';
+import { authRateLimiter } from '../middlewares/securityMiddleware';
 
 const router = Router();
 
@@ -26,7 +27,7 @@ const router = Router();
  *       401:
  *         description: Invalid credentials
  */
-router.post('/login', AuthController.login);
+router.post('/login', authRateLimiter, AuthController.login);
 
 /**
  * @swagger
@@ -40,7 +41,7 @@ router.post('/login', AuthController.login);
  *       401:
  *         description: Not logged in
  */
-router.get('/check-login', AuthController.checkLogin);
+router.get('/check-login', authRateLimiter, AuthController.checkLogin);
 
 /**
  * @swagger
@@ -52,6 +53,6 @@ router.get('/check-login', AuthController.checkLogin);
  *       200:
  *         description: Logout successful
  */
-router.post('/logout', AuthController.logout);
+router.post('/logout', authRateLimiter, AuthController.logout);
 
 export default router;

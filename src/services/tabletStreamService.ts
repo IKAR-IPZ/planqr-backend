@@ -23,10 +23,13 @@ export interface TabletCommand {
 interface DeviceStream {
     res: Response;
     heartbeat: NodeJS.Timeout;
+    clientKey: string;
 }
 
 const TABLET_COMMAND_EVENT = 'tablet-command';
 const deviceStreams = new Map<string, Set<DeviceStream>>();
+const MAX_STREAMS_PER_DEVICE = 3;
+const MAX_STREAMS_PER_CLIENT_PER_DEVICE = 1;
 
 const writeEvent = (res: Response, eventName: string, payload: unknown) => {
     res.write(`event: ${eventName}\n`);
@@ -50,7 +53,28 @@ const removeStream = (deviceId: string, stream: DeviceStream) => {
 export const buildTabletPath = (room: string, secretUrl: string) =>
     `/tablet/${encodeURIComponent(room)}/${encodeURIComponent(secretUrl)}`;
 
-export const registerTabletStream = (deviceId: string, res: Response) => {
+export const registerTabletStream = (deviceId: string, clientKey: string, res: Response) => {
+    const existingStreams = deviceStreams.get(deviceId) ?? new Set<DeviceStream>();
+    let streamsFromClient = 0;
+
+    for (const stream of Array.from(existingStreams)) {
+        if (stream.res.writableEnded || stream.res.destroyed) {
+            removeStream(deviceId, stream);
+            continue;
+        }
+
+        if (stream.clientKey === clientKey) {
+            streamsFromClient += 1;
+        }
+    }
+
+    if (existingStreams.size >= MAX_STREAMS_PER_DEVICE || streamsFromClient >= MAX_STREAMS_PER_CLIENT_PER_DEVICE) {
+        res.status(429).json({
+            message: 'Too many active streams for this device.'
+        });
+        return false;
+    }
+
     res.status(200);
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -60,6 +84,7 @@ export const registerTabletStream = (deviceId: string, res: Response) => {
 
     const stream: DeviceStream = {
         res,
+        clientKey,
         heartbeat: setInterval(() => {
             if (!res.writableEnded && !res.destroyed) {
                 res.write(': heartbeat\n\n');
@@ -88,6 +113,8 @@ export const registerTabletStream = (deviceId: string, res: Response) => {
         type: 'connected',
         issuedAt: new Date().toISOString()
     } satisfies TabletCommand);
+
+    return true;
 };
 
 export const sendTabletCommandToDevice = (deviceId: string, command: TabletCommand) => {
