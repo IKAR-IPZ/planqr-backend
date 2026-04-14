@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { getPlan } from "../controllers/ScheduleController";
 import { attachOptionalUser, requireOwnWorkerScheduleOrAdmin } from '../middlewares/authMiddleware';
+import { scheduleRateLimiter } from '../middlewares/securityMiddleware';
 
 const router = Router();
 
@@ -45,6 +46,6 @@ const router = Router();
  *       500:
  *         description: Server error
  */
-router.get('/', attachOptionalUser, requireOwnWorkerScheduleOrAdmin, getPlan);
+router.get('/', scheduleRateLimiter, attachOptionalUser, requireOwnWorkerScheduleOrAdmin, getPlan);
 
 export default router;

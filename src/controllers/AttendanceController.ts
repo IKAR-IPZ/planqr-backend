@@ -27,6 +27,7 @@ const scanSchema = z.object({
     door_id: z.string().min(1),
     scanned_at: z.string().datetime(),
 });
+const MAX_ATTENDANCE_LOG_LIMIT = 500;
 
 export class AttendanceController {
     
@@ -98,6 +99,9 @@ export class AttendanceController {
         try {
             const { door_id, limit = '100' } = req.query;
             const parsedLimit = parseInt(limit as string, 10);
+            const safeLimit = Number.isNaN(parsedLimit)
+                ? 100
+                : Math.max(1, Math.min(parsedLimit, MAX_ATTENDANCE_LOG_LIMIT));
 
             const whereClause: any = {};
             if (door_id) {
@@ -107,7 +111,7 @@ export class AttendanceController {
             const logs = await attendanceLogClient.findMany({
                 where: whereClause,
                 orderBy: { scannedAt: 'desc' },
-                take: Number.isNaN(parsedLimit) ? 100 : parsedLimit,
+                take: safeLimit,
             });
 
             res.status(200).json(logs);

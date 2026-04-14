@@ -10,10 +10,13 @@ import {
     serializeDeviceDisplaySettings
 } from '../services/deviceDisplaySettingsService';
 import { generateDeviceSecret } from '../services/deviceSecretService';
+import { getRequestClientIp } from '../middlewares/securityMiddleware';
 
 const prisma = new PrismaClient();
 const MAX_REASONABLE_DIMENSION_PX = 20000;
 const MAX_REASONABLE_DEVICE_PIXEL_RATIO = 20;
+const DEVICE_ID_PATTERN = /^\d{6}$/;
+const MAX_PENDING_DEVICES = 200;
 
 interface DisplayProfilePayload {
     viewportWidthPx: number;
@@ -32,6 +35,11 @@ const loadNightModeSettings = async () => {
         return DEFAULT_TABLET_NIGHT_MODE_SETTINGS;
     }
 };
+
+const normalizeDeviceId = (value: unknown) =>
+    typeof value === 'string' ? value.trim() : '';
+
+const isValidDeviceId = (value: string) => DEVICE_ID_PATTERN.test(value);
 
 const parsePositiveInteger = (value: unknown) => {
     if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -112,23 +120,23 @@ export class RegistryController {
 
     // GET /api/registry/stream/{deviceId}
     static async stream(req: Request, res: Response) {
-        const { deviceId } = req.params;
+        const deviceId = normalizeDeviceId(req.params.deviceId);
 
-        if (!deviceId) {
-            return res.status(400).json({ message: "DeviceId is required" });
+        if (!isValidDeviceId(deviceId)) {
+            return res.status(400).json({ message: "DeviceId must be a 6-digit code" });
         }
 
-        registerTabletStream(deviceId, res);
+        registerTabletStream(deviceId, getRequestClientIp(req), res);
         return;
     }
 
     // POST /api/registry/handshake
     static async handshake(req: Request, res: Response) {
         await ensureDeviceListDisplaySettingsColumns(prisma);
-        const { deviceId } = req.body;
+        const deviceId = normalizeDeviceId(req.body?.deviceId);
 
-        if (!deviceId) {
-            return res.status(400).json({ message: "DeviceId is required" });
+        if (!isValidDeviceId(deviceId)) {
+            return res.status(400).json({ message: "DeviceId must be a 6-digit code" });
         }
 
         let device = await prisma.deviceList.findUnique({
@@ -136,6 +144,18 @@ export class RegistryController {
         });
 
         if (!device) {
+            const pendingDevicesCount = await prisma.deviceList.count({
+                where: {
+                    status: 'PENDING'
+                }
+            });
+
+            if (pendingDevicesCount >= MAX_PENDING_DEVICES) {
+                return res.status(503).json({
+                    message: 'Too many pending devices. Please pair existing tablets or wait for cleanup.'
+                });
+            }
+
             // New device, create as PENDING
             device = await prisma.deviceList.create({
                 data: {
@@ -168,10 +188,10 @@ export class RegistryController {
     // POST /api/registry/display-profile
     static async updateDisplayProfile(req: Request, res: Response) {
         await ensureDeviceListDisplaySettingsColumns(prisma);
-        const { deviceId } = req.body;
+        const deviceId = normalizeDeviceId(req.body?.deviceId);
 
-        if (typeof deviceId !== 'string' || !deviceId.trim()) {
-            return res.status(400).json({ message: 'DeviceId is required' });
+        if (!isValidDeviceId(deviceId)) {
+            return res.status(400).json({ message: 'DeviceId must be a 6-digit code' });
         }
 
         const parsed = parseDisplayProfilePayload(req.body);
@@ -206,7 +226,11 @@ export class RegistryController {
     // GET /api/registry/status/:deviceId
     static async checkStatus(req: Request, res: Response) {
         await ensureDeviceListDisplaySettingsColumns(prisma);
-        const { deviceId } = req.params;
+        const deviceId = normalizeDeviceId(req.params.deviceId);
+
+        if (!isValidDeviceId(deviceId)) {
+            return res.status(400).json({ message: 'DeviceId must be a 6-digit code' });
+        }
 
         const device = await prisma.deviceList.findUnique({
             where: { deviceId }

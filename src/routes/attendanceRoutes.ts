@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { AttendanceController } from '../controllers/AttendanceController';
 import { requireLecturerAccess } from '../middlewares/authMiddleware';
+import { attendanceScanRateLimiter } from '../middlewares/securityMiddleware';
 
 const router = Router();
 
@@ -42,7 +43,7 @@ const router = Router();
  *         description: Unauthorized
  */
 // eslint-disable-next-line @typescript-eslint/no-misused-promises
-router.post('/scan', AttendanceController.recordScan);
+router.post('/scan', attendanceScanRateLimiter, AttendanceController.recordScan);
 
 /**
  * @swagger

@@ -12,6 +12,9 @@ const ROOM_SEARCH_URL = env.ZUT_SCHEDULE_STUDENT_URL.replace(
 
 const sanitizeRoomValue = (value: string) => value.trim().replace(/\s+/g, ' ');
 const normalizeRoomValue = (value: string) => sanitizeRoomValue(value).toUpperCase();
+const MAX_MESSAGE_BODY_LENGTH = 2000;
+const MAX_METADATA_TEXT_LENGTH = 120;
+const ROOM_LOOKUP_TIMEOUT_MS = 5000;
 
 const fetchMatchingRooms = async (query: string) => {
     const response = await axios.get(ROOM_SEARCH_URL, {
@@ -19,7 +22,8 @@ const fetchMatchingRooms = async (query: string) => {
             kind: 'room',
             query: sanitizeRoomValue(query)
         },
-        headers: { 'User-Agent': 'Mozilla/5.0' }
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+        timeout: ROOM_LOOKUP_TIMEOUT_MS
     });
 
     const data = response.data;
@@ -73,21 +77,40 @@ export class MessageController {
                 return;
             }
 
+            const nextBody = typeof command.body === 'string' ? command.body.trim() : '';
+            if (!nextBody || nextBody.length > MAX_MESSAGE_BODY_LENGTH) {
+                res.status(400).json({ message: 'Message body is required and must not exceed 2000 characters' });
+                return;
+            }
+
+            const room = typeof command.room === 'string' ? command.room.trim() : '';
+            const group = typeof command.group === 'string' ? command.group.trim() : '';
+            const newRoom = typeof command.newRoom === 'string' ? sanitizeRoomValue(command.newRoom) : '';
+
+            if (
+                room.length > MAX_METADATA_TEXT_LENGTH ||
+                group.length > MAX_METADATA_TEXT_LENGTH ||
+                newRoom.length > MAX_METADATA_TEXT_LENGTH
+            ) {
+                res.status(400).json({ message: 'Room, group and new room values must not exceed 120 characters' });
+                return;
+            }
+
             const lecturerName = req.user.displayName || command.lecturer || 'System';
             const message = await prisma.message.create({
                 data: {
-                    body: command.body,
+                    body: nextBody,
                     lecturer: lecturerName,
                     login: req.user.login,
-                    room: command.room || 'Unknown',
+                    room: room || 'Unknown',
                     lessonId: parsedLessonId,
-                    group: command.group || 'All',
+                    group: group || 'All',
                     isRoomChange: Boolean(command.isRoomChange),
-                    newRoom: command.newRoom || null,
+                    newRoom: newRoom || null,
                     createdAt: command.createdAt ? new Date(command.createdAt) : new Date()
                 } as any
             });
-            console.log(`Received message: ${command.body} from ${req.user.login} for lesson ${parsedLessonId}`);
+            console.log(`Received message from ${req.user.login} for lesson ${parsedLessonId}`);
             // Return the created message
             res.status(200).json(message);
         } catch (e) {
@@ -99,6 +122,11 @@ export class MessageController {
     // GET /api/messages/{lessonId}
     static async getMessages(req: Request, res: Response) {
         const lessonId = parseInt(req.params.lessonId);
+        if (!Number.isInteger(lessonId) || lessonId <= 0) {
+            res.status(400).json({ message: 'Invalid lesson id' });
+            return;
+        }
+
         try {
             const messages = await prisma.message.findMany({
                 where: { lessonId },
@@ -145,6 +173,11 @@ export class MessageController {
 
             if (!nextBody && !nextRoom) {
                 res.status(400).json({ message: 'Message body or newRoom is required' });
+                return;
+            }
+
+            if (nextBody.length > MAX_MESSAGE_BODY_LENGTH || nextRoom.length > MAX_METADATA_TEXT_LENGTH) {
+                res.status(400).json({ message: 'Message body or room value is too long' });
                 return;
             }
 

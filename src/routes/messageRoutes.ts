@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { MessageController } from '../controllers/MessageController';
 import { requireAdmin, requireAuth, requireLecturerAccess } from '../middlewares/authMiddleware';
+import { publicMessagesRateLimiter } from '../middlewares/securityMiddleware';
 
 const router = Router();
 
@@ -76,7 +77,7 @@ router.get('/', requireAdmin, MessageController.getAllMessages);
  *       200:
  *         description: List of messages for the lesson
  */
-router.get('/:lessonId', MessageController.getMessages);
+router.get('/:lessonId', publicMessagesRateLimiter, MessageController.getMessages);
 
 /**
  * @swagger

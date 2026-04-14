@@ -17,23 +17,29 @@ import cookieParser from "cookie-parser";
 import https from "https";
 import fs from "fs";
 import path from "path";
+import { applyBasicSecurityHeaders } from "./middlewares/securityMiddleware";
 
 
 const app = express();
 const port = env.PORT;
 const cleanupPrisma = new PrismaClient();
 let cleanupInProgress = false;
-const PENDING_DEVICE_STALE_AFTER_MS: number | null = null;
+const PENDING_DEVICE_STALE_AFTER_MS = 30 * 60 * 1000;
 const PENDING_DEVICE_CLEANUP_INTERVAL_MS = 10 * 1000;
+
+app.disable('x-powered-by');
 
 app.use(cors({
     origin: env.CORS_ORIGIN,
     credentials: true // Important for cookies!
 }));
-app.use(express.json());
+app.use(applyBasicSecurityHeaders);
+app.use(express.json({ limit: '32kb' }));
 app.use(cookieParser());
 
-app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(specs));
+if (env.NODE_ENV === 'development') {
+    app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(specs));
+}
 
 app.use('/api/schedule', scheduleRoutes)
 app.use('/api/auth', authRoutes);
@@ -49,7 +55,12 @@ app.use(statusRoutes);
 // startCleanupJob();
 
 app.get('/', (req, res) => {
-    res.redirect(`/api/docs`);
+    if (env.NODE_ENV === 'development') {
+        res.redirect(`/api/docs`);
+        return;
+    }
+
+    res.status(200).json({ status: 'ok' });
 }
 )
 

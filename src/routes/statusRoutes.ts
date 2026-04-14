@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { StatusController } from '../controllers/StatusController';
+import { publicStatusRateLimiter } from '../middlewares/securityMiddleware';
 
 const router = Router();
 
@@ -61,6 +62,6 @@ const router = Router();
  *                 - room: WI1-308
  *                   lastSeen: '2026-04-12T09:14:21.000Z'
  */
-router.get('/status', StatusController.getStatus);
+router.get('/status', publicStatusRateLimiter, StatusController.getStatus);
 
 export default router;
