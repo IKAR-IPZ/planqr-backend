@@ -70,6 +70,11 @@ const toAttendanceTime = (value: Date) =>
         timeZone: 'Europe/Warsaw',
     }).format(value);
 
+const getAuthenticatedLecturerId = (req: Request) => {
+    const user = (req as Request & { user?: { login?: string } }).user;
+    return user?.login ?? null;
+};
+
 export class AttendanceController {
     
     // Walidacja tokena w uproszczonej formie
@@ -159,15 +164,9 @@ export class AttendanceController {
         }
     }
 
-    // GET /api/attendance/lessons/:lessonId/list?door_id=...&from=...&to=...
-    static async getLessonAttendanceList(req: Request, res: Response): Promise<void> {
+    // GET /api/attendance/list?door_id=...&from=...&to=...
+    static async getAttendanceList(req: Request, res: Response): Promise<void> {
         try {
-            const lessonId = String(req.params.lessonId ?? '').trim();
-            if (!lessonId) {
-                res.status(400).json({ status: 'error', message: 'lessonId is required' });
-                return;
-            }
-
             const parseResult = attendanceListQuerySchema.safeParse(req.query);
             if (!parseResult.success) {
                 res.status(400).json({
@@ -179,6 +178,7 @@ export class AttendanceController {
             }
 
             const doorId = parseResult.data.door_id ?? parseResult.data.doorId;
+            const lecturerId = getAuthenticatedLecturerId(req);
             const fromDate = new Date(parseResult.data.from);
             const toDate = new Date(parseResult.data.to);
 
@@ -251,8 +251,8 @@ export class AttendanceController {
 
             res.status(200).json({
                 status: 'success',
-                lessonId,
                 doorId,
+                lecturerId,
                 from: toIsoString(fromDate),
                 to: toIsoString(toDate),
                 generatedAt: new Date().toISOString(),

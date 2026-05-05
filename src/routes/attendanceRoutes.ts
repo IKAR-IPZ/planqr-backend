@@ -65,18 +65,13 @@ router.post('/scan', AttendanceController.recordScan);
 
 /**
  * @swagger
- * /api/attendance/lessons/{lessonId}/list:
+ * /api/attendance/list:
  *   get:
- *     summary: Build a student attendance list for a lesson from raw scan logs
+ *     summary: Build a student attendance list from raw scan logs
  *     tags: [Attendance]
  *     security:
  *       - bearerAuth: []
  *     parameters:
- *       - in: path
- *         name: lessonId
- *         required: true
- *         schema:
- *           type: string
  *       - in: query
  *         name: door_id
  *         required: true
@@ -104,7 +99,7 @@ router.post('/scan', AttendanceController.recordScan);
  *         description: Unauthorized
  */
 // eslint-disable-next-line @typescript-eslint/no-misused-promises
-router.get('/lessons/:lessonId/list', requireLecturerOrServiceAccess, AttendanceController.getLessonAttendanceList);
+router.get('/list', requireLecturerOrServiceAccess, AttendanceController.getAttendanceList);
 
 /**
  * @swagger
