@@ -4,6 +4,15 @@ import { z } from 'zod';
 import { env } from '../config/env';
 
 const prisma = new PrismaClient();
+type AttendanceLogRecord = {
+    id: number;
+    cardId: string;
+    doorId: string;
+    scannedAt: Date;
+    createdAt: Date;
+    processed: boolean;
+};
+
 const attendanceLogClient = (prisma as unknown as {
     attendanceLog: {
         create: (args: {
@@ -14,10 +23,16 @@ const attendanceLogClient = (prisma as unknown as {
             };
         }) => Promise<unknown>;
         findMany: (args: {
-            where: Record<string, string>;
-            orderBy: { scannedAt: 'desc' };
-            take: number;
-        }) => Promise<unknown>;
+            where: {
+                doorId?: string;
+                scannedAt?: {
+                    gte?: Date;
+                    lte?: Date;
+                };
+            };
+            orderBy: { scannedAt: 'asc' | 'desc' };
+            take?: number;
+        }) => Promise<AttendanceLogRecord[]>;
     };
 }).attendanceLog;
 
@@ -27,6 +42,33 @@ const scanSchema = z.object({
     door_id: z.string().min(1),
     scanned_at: z.string().datetime(),
 });
+
+const attendanceListQuerySchema = z.object({
+    door_id: z.string().min(1).optional(),
+    doorId: z.string().min(1).optional(),
+    from: z.string().datetime(),
+    to: z.string().datetime(),
+}).superRefine((value, ctx) => {
+    if (!value.door_id && !value.doorId) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['door_id'],
+            message: 'door_id is required',
+        });
+    }
+});
+
+const MAX_ATTENDANCE_LIST_LOGS = 5000;
+
+const toIsoString = (value: Date) => value.toISOString();
+
+const toAttendanceTime = (value: Date) =>
+    new Intl.DateTimeFormat('pl-PL', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hourCycle: 'h23',
+        timeZone: 'Europe/Warsaw',
+    }).format(value);
 
 export class AttendanceController {
     
@@ -114,6 +156,114 @@ export class AttendanceController {
         } catch (error) {
             console.error('Error fetching logs:', error);
             res.status(500).json({ error: 'Internal server error' });
+        }
+    }
+
+    // GET /api/attendance/lessons/:lessonId/list?door_id=...&from=...&to=...
+    static async getLessonAttendanceList(req: Request, res: Response): Promise<void> {
+        try {
+            const lessonId = String(req.params.lessonId ?? '').trim();
+            if (!lessonId) {
+                res.status(400).json({ status: 'error', message: 'lessonId is required' });
+                return;
+            }
+
+            const parseResult = attendanceListQuerySchema.safeParse(req.query);
+            if (!parseResult.success) {
+                res.status(400).json({
+                    status: 'error',
+                    message: 'Invalid query parameters',
+                    errors: parseResult.error.errors,
+                });
+                return;
+            }
+
+            const doorId = parseResult.data.door_id ?? parseResult.data.doorId;
+            const fromDate = new Date(parseResult.data.from);
+            const toDate = new Date(parseResult.data.to);
+
+            if (!doorId || Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) {
+                res.status(400).json({ status: 'error', message: 'Invalid attendance window' });
+                return;
+            }
+
+            if (fromDate > toDate) {
+                res.status(400).json({ status: 'error', message: 'from must be before to' });
+                return;
+            }
+
+            const logs = await attendanceLogClient.findMany({
+                where: {
+                    doorId,
+                    scannedAt: {
+                        gte: fromDate,
+                        lte: toDate,
+                    },
+                },
+                orderBy: { scannedAt: 'asc' },
+                take: MAX_ATTENDANCE_LIST_LOGS,
+            });
+
+            const studentsById = new Map<string, {
+                studentId: string;
+                albumNumber: string;
+                present: true;
+                source: 'scanner';
+                firstScannedAt: string;
+                lastScannedAt: string;
+                enteredAt: string;
+                scanCount: number;
+                attendanceLogIds: number[];
+            }>();
+
+            for (const log of logs) {
+                const studentId = log.cardId.trim();
+                if (!studentId) {
+                    continue;
+                }
+
+                const scannedAt = toIsoString(log.scannedAt);
+                const existing = studentsById.get(studentId);
+
+                if (!existing) {
+                    studentsById.set(studentId, {
+                        studentId,
+                        albumNumber: studentId,
+                        present: true,
+                        source: 'scanner',
+                        firstScannedAt: scannedAt,
+                        lastScannedAt: scannedAt,
+                        enteredAt: toAttendanceTime(log.scannedAt),
+                        scanCount: 1,
+                        attendanceLogIds: [log.id],
+                    });
+                    continue;
+                }
+
+                existing.lastScannedAt = scannedAt;
+                existing.scanCount += 1;
+                existing.attendanceLogIds.push(log.id);
+            }
+
+            const students = Array.from(studentsById.values()).sort((first, second) =>
+                first.firstScannedAt.localeCompare(second.firstScannedAt)
+            );
+
+            res.status(200).json({
+                status: 'success',
+                lessonId,
+                doorId,
+                from: toIsoString(fromDate),
+                to: toIsoString(toDate),
+                generatedAt: new Date().toISOString(),
+                totalScans: logs.length,
+                totalPresent: students.length,
+                truncated: logs.length === MAX_ATTENDANCE_LIST_LOGS,
+                students,
+            });
+        } catch (error) {
+            console.error('Error building lesson attendance list:', error);
+            res.status(500).json({ status: 'error', message: 'Internal server error' });
         }
     }
 }
