@@ -1,9 +1,28 @@
-import { Router } from 'express';
+import { NextFunction, Request, Response, Router } from 'express';
 import { AttendanceController } from '../controllers/AttendanceController';
 import { requireLecturerAccess } from '../middlewares/authMiddleware';
 import { attendanceScanRateLimiter } from '../middlewares/securityMiddleware';
+import { env } from '../config/env';
 
 const router = Router();
+
+const hasValidServiceToken = (authHeader: string | undefined) => {
+    if (!authHeader?.startsWith('Bearer ')) {
+        return false;
+    }
+
+    const token = authHeader.split(' ')[1];
+    return Boolean(env.WORKER_SECRET_TOKEN) && token === env.WORKER_SECRET_TOKEN;
+};
+
+const requireLecturerOrServiceAccess = (req: Request, res: Response, next: NextFunction) => {
+    if (hasValidServiceToken(req.headers.authorization)) {
+        next();
+        return;
+    }
+
+    void requireLecturerAccess(req, res, next);
+};
 
 /**
  * @swagger
@@ -44,6 +63,44 @@ const router = Router();
  */
 // eslint-disable-next-line @typescript-eslint/no-misused-promises
 router.post('/scan', attendanceScanRateLimiter, AttendanceController.recordScan);
+
+/**
+ * @swagger
+ * /api/attendance/list:
+ *   get:
+ *     summary: Build a student attendance list from raw scan logs
+ *     tags: [Attendance]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: door_id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Door reader id stored in attendance logs
+ *       - in: query
+ *         name: from
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *       - in: query
+ *         name: to
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *     responses:
+ *       200:
+ *         description: Student attendance JSON
+ *       400:
+ *         description: Invalid query parameters
+ *       401:
+ *         description: Unauthorized
+ */
+// eslint-disable-next-line @typescript-eslint/no-misused-promises
+router.get('/list', requireLecturerOrServiceAccess, AttendanceController.getAttendanceList);
 
 /**
  * @swagger

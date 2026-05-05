@@ -58,6 +58,7 @@ Opcjonalnie możesz ustawić:
 | Zmienna | Wymagana | Opis |
 | --- | --- | --- |
 | `DEV_AUTH_BYPASS` | opcjonalnie | `true` = tylko przy `NODE_ENV=development` pomija LDAP i pozwala zalogować się dowolnym loginem jako prowadzący; domyślnie `false` |
+| `WORKER_SECRET_TOKEN` | opcjonalnie | Bearer token dla zewnętrznej usługi pobierającej `GET /api/attendance/list`; puste = dostęp przez token wyłączony |
 
 Dodatkowo przy rootowym `docker compose` możesz ustawić:
 
@@ -84,6 +85,7 @@ LDAP_URL=ldap://ldap.zut.edu.pl
 LDAP_DN=uid=%s,cn=users,cn=accounts,dc=zut,dc=edu,dc=pl
 ZUT_SCHEDULE_STUDENT_URL=https://plan.zut.edu.pl/schedule_student.php
 DEV_AUTH_BYPASS=false
+WORKER_SECRET_TOKEN=
 ```
 
 ## Baza danych
