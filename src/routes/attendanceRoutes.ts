@@ -35,7 +35,7 @@ const requireLecturerOrServiceAccess = (req: Request, res: Response, next: NextF
  * @swagger
  * /api/attendance/scan:
  *   post:
- *     summary: Record a new card scan from a door reader
+ *     summary: Open/close an attendance session or add a user from a card scan
  *     tags: [Attendance]
  *     security:
  *       - bearerAuth: []
@@ -48,11 +48,19 @@ const requireLecturerOrServiceAccess = (req: Request, res: Response, next: NextF
  *             properties:
  *               card_id:
  *                 type: string
+ *               card_hex:
+ *                 type: string
+ *               username:
+ *                 type: string
  *               door_id:
  *                 type: string
+ *                 deprecated: true
  *               scanned_at:
  *                 type: string
  *                 format: date-time
+ *               role:
+ *                 type: string
+ *                 enum: [dydaktyk, lecturer, teacher, student, user]
  *     responses:
  *       201:
  *         description: Scan recorded
@@ -68,29 +76,22 @@ router.post('/scan', attendanceScanRateLimiter, AttendanceController.recordScan)
  * @swagger
  * /api/attendance/list:
  *   get:
- *     summary: Build a student attendance list from raw scan logs
+ *     summary: Get persisted attendance JSON for the latest/open session
  *     tags: [Attendance]
  *     security:
  *       - bearerAuth: []
  *     parameters:
  *       - in: query
+ *         name: session_id
+ *         schema:
+ *           type: integer
+ *         description: Explicit attendance session id
+ *       - in: query
  *         name: door_id
- *         required: true
  *         schema:
  *           type: string
- *         description: Door reader id stored in attendance logs
- *       - in: query
- *         name: from
- *         required: true
- *         schema:
- *           type: string
- *           format: date-time
- *       - in: query
- *         name: to
- *         required: true
- *         schema:
- *           type: string
- *           format: date-time
+ *         deprecated: true
+ *         description: Accepted for backward compatibility; sessions are no longer stored by door
  *     responses:
  *       200:
  *         description: Student attendance JSON
@@ -102,18 +103,33 @@ router.post('/scan', attendanceScanRateLimiter, AttendanceController.recordScan)
 // eslint-disable-next-line @typescript-eslint/no-misused-promises
 router.get('/list', requireLecturerOrServiceAccess, AttendanceController.getAttendanceList);
 
+// eslint-disable-next-line @typescript-eslint/no-misused-promises
+router.post('/sessions', requireLecturerAccess, AttendanceController.openSession);
+
+// eslint-disable-next-line @typescript-eslint/no-misused-promises
+router.post('/sessions/:id/close', requireLecturerAccess, AttendanceController.closeSession);
+
+// eslint-disable-next-line @typescript-eslint/no-misused-promises
+router.post('/sessions/:id/send', requireLecturerOrServiceAccess, AttendanceController.sendSession);
+
+// eslint-disable-next-line @typescript-eslint/no-misused-promises
+router.post('/sessions/:id/users', requireLecturerAccess, AttendanceController.addSessionUser);
+
+// eslint-disable-next-line @typescript-eslint/no-misused-promises
+router.delete('/sessions/:id/users/:userId', requireLecturerAccess, AttendanceController.removeSessionUser);
+
 /**
  * @swagger
  * /api/attendance:
  *   get:
- *     summary: Get a list of attendance logs
+ *     summary: Get a list of attendance sessions
  *     tags: [Attendance]
  *     parameters:
  *       - in: query
- *         name: door_id
+ *         name: active
  *         schema:
- *           type: string
- *         description: Filter logs by door
+ *           type: boolean
+ *         description: Return only active sessions
  *       - in: query
  *         name: limit
  *         schema:
@@ -121,9 +137,9 @@ router.get('/list', requireLecturerOrServiceAccess, AttendanceController.getAtte
  *         description: Number of records to return
  *     responses:
  *       200:
- *         description: List of scans
+ *         description: List of attendance sessions
  */
 // eslint-disable-next-line @typescript-eslint/no-misused-promises
-router.get('/', requireLecturerAccess, AttendanceController.getLogs);
+router.get('/', requireLecturerAccess, AttendanceController.getSessions);
 
 export default router;
