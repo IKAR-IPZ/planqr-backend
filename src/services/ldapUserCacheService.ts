@@ -114,6 +114,23 @@ export const upsertCachedLdapUser = async (user: LdapDirectoryUser) => {
     }
 };
 
+const markUsersNotSyncedSinceInactive = async (syncedAfter: Date) => {
+    try {
+        await prisma.$executeRaw`
+            UPDATE ldap_users
+            SET is_active = 0,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE ldap_synced_at IS NULL
+               OR ldap_synced_at < ${syncedAfter}
+        `;
+    } catch (error) {
+        if (!hasLoggedCacheWriteError) {
+            hasLoggedCacheWriteError = true;
+            console.error('[LDAP Cache] Failed to deactivate stale ldap_users rows.', error);
+        }
+    }
+};
+
 export const upsertAuthenticatedLdapUser = async (identity: {
     username: string;
     givenName?: string | null;
@@ -182,6 +199,8 @@ const getKnownUsernamesForLdapSync = async () => {
             UNION
             SELECT username FROM tbldydaktyk
             UNION
+            SELECT username FROM ldap_users
+            UNION
             SELECT "username" AS username FROM "admins"
         ) AS known_users
         WHERE username IS NOT NULL
@@ -193,20 +212,49 @@ const getKnownUsernamesForLdapSync = async () => {
     return rows.map((row) => row.username);
 };
 
-export const syncKnownLdapUsers = async () => {
+const syncAllLdapUsers = async () => {
+    const syncStartedAt = new Date();
+    const directoryUsers = await ldapDirectoryService.findAllUsers();
+    let synced = 0;
+
+    for (const user of directoryUsers) {
+        await upsertCachedLdapUser(user);
+        synced += 1;
+    }
+
+    if (env.LDAP_SYNC_FULL_USER_LIMIT === 0) {
+        await markUsersNotSyncedSinceInactive(syncStartedAt);
+    }
+
+    return {
+        status: 'success',
+        mode: 'all',
+        known: directoryUsers.length,
+        synced,
+        missing: 0,
+    };
+};
+
+export const syncLdapUsers = async () => {
     if (!env.LDAP_SYNC_ENABLED || !ldapDirectoryService.isConfigured()) {
         return {
             status: 'disabled',
+            mode: env.LDAP_SYNC_MODE,
             known: 0,
             synced: 0,
             missing: 0,
         };
     }
 
+    if (env.LDAP_SYNC_MODE === 'all') {
+        return syncAllLdapUsers();
+    }
+
     const usernames = await getKnownUsernamesForLdapSync();
     if (!usernames.length) {
         return {
             status: 'success',
+            mode: 'known',
             known: 0,
             synced: 0,
             missing: 0,
@@ -233,6 +281,7 @@ export const syncKnownLdapUsers = async () => {
 
     return {
         status: 'success',
+        mode: 'known',
         known: usernames.length,
         synced,
         missing,

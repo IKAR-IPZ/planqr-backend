@@ -1,5 +1,5 @@
 import { Response } from 'express';
-import { TabletNightModeSettings } from './tabletDisplaySettingsService';
+import { TabletEmergencyAlertSettings, TabletNightModeSettings } from './tabletDisplaySettingsService';
 import { DeviceBlackScreenMode, TabletDisplayTheme } from './deviceDisplaySettingsService';
 
 export interface TabletDeviceConfig {
@@ -9,6 +9,7 @@ export interface TabletDeviceConfig {
     nightMode: TabletNightModeSettings;
     displayTheme: TabletDisplayTheme;
     blackScreenMode: DeviceBlackScreenMode;
+    emergencyAlert: TabletEmergencyAlertSettings;
 }
 
 export interface TabletCommand {

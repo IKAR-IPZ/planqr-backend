@@ -2,6 +2,8 @@ import { Request, Response } from 'express';
 import { DeviceList, PrismaClient } from '@prisma/client';
 import { registerTabletStream } from '../services/tabletStreamService';
 import {
+    DEFAULT_TABLET_EMERGENCY_ALERT_SETTINGS,
+    getTabletEmergencyAlertSettings,
     DEFAULT_TABLET_NIGHT_MODE_SETTINGS,
     getTabletNightModeSettings
 } from '../services/tabletDisplaySettingsService';
@@ -33,6 +35,15 @@ const loadNightModeSettings = async () => {
     } catch (error) {
         console.error('[Registry] Failed to load tablet night mode settings:', error);
         return DEFAULT_TABLET_NIGHT_MODE_SETTINGS;
+    }
+};
+
+const loadEmergencyAlertSettings = async () => {
+    try {
+        return await getTabletEmergencyAlertSettings(prisma);
+    } catch (error) {
+        console.error('[Registry] Failed to load tablet emergency alert settings:', error);
+        return DEFAULT_TABLET_EMERGENCY_ALERT_SETTINGS;
     }
 };
 
@@ -98,7 +109,8 @@ const parseDisplayProfilePayload = (
 
 const buildDeviceConfig = (
     device: DeviceList | null,
-    nightMode: Awaited<ReturnType<typeof loadNightModeSettings>>
+    nightMode: Awaited<ReturnType<typeof loadNightModeSettings>>,
+    emergencyAlert: Awaited<ReturnType<typeof loadEmergencyAlertSettings>>
 ) => {
     if (!device || device.status !== 'ACTIVE') {
         return null;
@@ -112,7 +124,8 @@ const buildDeviceConfig = (
         secretUrl: device.deviceURL,
         nightMode,
         displayTheme: displaySettings.displayTheme,
-        blackScreenMode: displaySettings.blackScreenMode
+        blackScreenMode: displaySettings.blackScreenMode,
+        emergencyAlert
     };
 };
 
@@ -177,11 +190,12 @@ export class RegistryController {
         }
 
         const nightMode = await loadNightModeSettings();
+        const emergencyAlert = await loadEmergencyAlertSettings();
 
         // Return status
         return res.json({
             status: device.status,
-            config: buildDeviceConfig(device, nightMode)
+            config: buildDeviceConfig(device, nightMode, emergencyAlert)
         });
     }
 
@@ -248,10 +262,11 @@ export class RegistryController {
         }
 
         const nightMode = await loadNightModeSettings();
+        const emergencyAlert = await loadEmergencyAlertSettings();
 
         return res.json({
             status: device.status,
-            config: buildDeviceConfig(device, nightMode)
+            config: buildDeviceConfig(device, nightMode, emergencyAlert)
         });
     }
 }

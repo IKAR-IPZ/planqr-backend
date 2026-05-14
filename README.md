@@ -60,6 +60,19 @@ Opcjonalnie możesz ustawić:
 | `DEV_AUTH_BYPASS` | opcjonalnie | `true` = tylko przy `NODE_ENV=development` pomija LDAP i pozwala zalogować się dowolnym loginem jako prowadzący; domyślnie `false` |
 | `WORKER_SECRET_TOKEN` | opcjonalnie | Bearer token dla zewnętrznej usługi pobierającej `GET /api/attendance/list`; puste = dostęp przez token wyłączony |
 
+Synchronizacja cache użytkowników LDAP do tabeli `ldap_users`:
+
+| Zmienna | Wymagana | Opis |
+| --- | --- | --- |
+| `LDAP_SYNC_ENABLED` | opcjonalnie | `true` włącza synchronizację LDAP przy starcie backendu i potem co godzinę; domyślnie `false` |
+| `LDAP_SYNC_MODE` | opcjonalnie | `all` = synchronizuj wszystkie profile z LDAP; `known` = tylko loginy widziane w `tbluser`, `tbldydaktyk`, `ldap_users`, `admins`; domyślnie `all` |
+| `LDAP_SYNC_SEARCH_BASE_DN` | opcjonalnie | baza wyszukiwania LDAP; jeśli puste, backend wyprowadza ją z `LDAP_DN` przez usunięcie pierwszego członu |
+| `LDAP_SYNC_FULL_FILTER` | opcjonalnie | filtr dla `LDAP_SYNC_MODE=all`; domyślnie `(uid=*)` |
+| `LDAP_SYNC_FULL_PAGE_SIZE` | opcjonalnie | rozmiar strony LDAP przy pełnym syncu; domyślnie `500`, maksymalnie `1000` |
+| `LDAP_SYNC_FULL_USER_LIMIT` | opcjonalnie | limit profili przy pełnym syncu; `0` = bez limitu; domyślnie `0` |
+| `LDAP_SYNC_KNOWN_USER_LIMIT` | opcjonalnie | maksymalna liczba loginów w trybie `known`; domyślnie `2000` |
+| `LDAP_SYNC_BATCH_SIZE` | opcjonalnie | liczba loginów w jednym zapytaniu LDAP w trybie `known`; domyślnie `50`, maksymalnie `100` |
+
 Dodatkowo przy rootowym `docker compose` możesz ustawić:
 
 | Zmienna | Wymagana | Opis |
@@ -86,7 +99,28 @@ LDAP_DN=uid=%s,cn=users,cn=accounts,dc=zut,dc=edu,dc=pl
 ZUT_SCHEDULE_STUDENT_URL=https://plan.zut.edu.pl/schedule_student.php
 DEV_AUTH_BYPASS=false
 WORKER_SECRET_TOKEN=
+LDAP_SYNC_ENABLED=false
+LDAP_SYNC_MODE=all
+LDAP_SYNC_SEARCH_BASE_DN=cn=users,cn=accounts,dc=zut,dc=edu,dc=pl
+LDAP_SYNC_FULL_FILTER=(uid=*)
+LDAP_SYNC_FULL_PAGE_SIZE=500
+LDAP_SYNC_FULL_USER_LIMIT=0
+LDAP_SYNC_KNOWN_USER_LIMIT=2000
+LDAP_SYNC_BATCH_SIZE=50
 ```
+
+Przykład włączenia pełnej synchronizacji LDAP:
+
+```dotenv
+LDAP_SYNC_ENABLED=true
+LDAP_SYNC_MODE=all
+LDAP_SYNC_SEARCH_BASE_DN=cn=users,cn=accounts,dc=zut,dc=edu,dc=pl
+LDAP_SYNC_FULL_FILTER=(uid=*)
+LDAP_SYNC_FULL_PAGE_SIZE=500
+LDAP_SYNC_FULL_USER_LIMIT=0
+```
+
+Synchronizacja LDAP robi anonymous bind, bez usera i hasła.
 
 ## Baza danych
 
@@ -267,6 +301,14 @@ DATABASE_URL=postgresql://postgres:postgres@db-host:5432/planqr_db?schema=public
 JWT_SECRET=change-me
 LDAP_URL=ldap://ldap.zut.edu.pl
 LDAP_DN=uid=%s,cn=users,cn=accounts,dc=zut,dc=edu,dc=pl
+LDAP_SYNC_ENABLED=false
+LDAP_SYNC_MODE=all
+LDAP_SYNC_SEARCH_BASE_DN=cn=users,cn=accounts,dc=zut,dc=edu,dc=pl
+LDAP_SYNC_FULL_FILTER=(uid=*)
+LDAP_SYNC_FULL_PAGE_SIZE=500
+LDAP_SYNC_FULL_USER_LIMIT=0
+LDAP_SYNC_KNOWN_USER_LIMIT=2000
+LDAP_SYNC_BATCH_SIZE=50
 ZUT_SCHEDULE_STUDENT_URL=https://plan.zut.edu.pl/schedule_student.php
 DEV_AUTH_BYPASS=false
 FRONTEND_PORT=443
@@ -280,6 +322,8 @@ Ważne:
 - `DATABASE_URL` musi wskazywać bazę widoczną z kontenera backendu
 - `CORS_ORIGIN` musi odpowiadać adresowi frontendu widocznemu w przeglądarce
 - `DEV_AUTH_BYPASS=true` działa wyłącznie z `NODE_ENV=development`; w innych trybach backend nie wystartuje
+- `LDAP_SYNC_ENABLED=true` uruchamia sync przez anonymous bind, bez usera i hasła
+- `LDAP_SYNC_MODE=all` zapisuje profile znalezione pod `LDAP_SYNC_SEARCH_BASE_DN` do tabeli `ldap_users`
 - jeżeli frontend działa na `https://localhost:8443`, dodaj do `CORS_ORIGIN` dokładnie `https://localhost:8443`
 - jeżeli zmienisz `BACKEND_HOST_PORT`, ustaw też zgodny `BACKEND_PUBLIC_URL`, na przykład `http://localhost:9191`
 - w Compose najprostsza i zalecana konfiguracja to `DISABLE_HTTPS=true`, bo TLS kończy się na `nginx` z frontendu
@@ -347,3 +391,18 @@ Brakuje `../certs/cert.pem` albo `../certs/cert.key`, a `DISABLE_HTTPS=false`.
 ### LDAP lokalnie nie działa
 
 Najczęściej problemem nie jest backend, tylko brak dostępu do sieci uczelni lub VPN.
+
+### LDAP sync nie zapisuje wszystkich profili
+
+Sprawdź:
+- `LDAP_SYNC_ENABLED=true`
+- `LDAP_SYNC_MODE=all`
+- sync LDAP używa anonymous bind, więc nie wymaga usera ani hasła
+- `LDAP_SYNC_SEARCH_BASE_DN` wskazuje gałąź z użytkownikami, np. `cn=users,cn=accounts,dc=zut,dc=edu,dc=pl`
+- `LDAP_SYNC_FULL_FILTER` pasuje do profili użytkowników, np. `(uid=*)`
+
+Po starcie backend powinien wypisać log podobny do:
+
+```text
+[LDAP Sync] Finished startup sync with status=success, mode=all, known=..., synced=..., missing=0.
+```

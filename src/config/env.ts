@@ -36,9 +36,11 @@ const envSchema = z.object({
             message: "LDAP_SYNC_ENABLED must be set to true or false",
         })
         .transform((value) => value === "true"),
-    LDAP_SYNC_BIND_DN: z.string().optional(),
-    LDAP_SYNC_BIND_PASSWORD: z.string().optional(),
     LDAP_SYNC_SEARCH_BASE_DN: z.string().optional(),
+    LDAP_SYNC_MODE: z.enum(["known", "all"]).optional().default("all"),
+    LDAP_SYNC_FULL_FILTER: z.string().optional().default("(uid=*)"),
+    LDAP_SYNC_FULL_PAGE_SIZE: z.coerce.number().int().positive().max(1000).optional().default(500),
+    LDAP_SYNC_FULL_USER_LIMIT: z.coerce.number().int().min(0).optional().default(0),
     LDAP_SYNC_KNOWN_USER_LIMIT: z.coerce.number().int().positive().optional().default(2000),
     LDAP_SYNC_BATCH_SIZE: z.coerce.number().int().positive().max(100).optional().default(50),
     ZUT_SCHEDULE_STUDENT_URL: z.string().url(),
@@ -49,14 +51,6 @@ const envSchema = z.object({
             code: z.ZodIssueCode.custom,
             path: ["DEV_AUTH_BYPASS"],
             message: "DEV_AUTH_BYPASS can only be enabled when NODE_ENV=development",
-        });
-    }
-
-    if (value.LDAP_SYNC_ENABLED && (!value.LDAP_SYNC_BIND_DN || !value.LDAP_SYNC_BIND_PASSWORD)) {
-        ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ["LDAP_SYNC_BIND_DN"],
-            message: "LDAP_SYNC_BIND_DN and LDAP_SYNC_BIND_PASSWORD are required when LDAP_SYNC_ENABLED=true",
         });
     }
 });

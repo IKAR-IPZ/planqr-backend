@@ -1,8 +1,27 @@
 import cron from 'node-cron';
 import { env } from '../config/env';
-import { syncKnownLdapUsers } from '../services/ldapUserCacheService';
+import { syncLdapUsers } from '../services/ldapUserCacheService';
 
 let ldapUserSyncInProgress = false;
+
+const runLdapUserSync = async (source: 'startup' | 'schedule') => {
+    if (ldapUserSyncInProgress) {
+        console.log(`[LDAP Sync] Previous sync is still running; skipping ${source} sync.`);
+        return;
+    }
+
+    ldapUserSyncInProgress = true;
+    try {
+        const result = await syncLdapUsers();
+        console.log(
+            `[LDAP Sync] Finished ${source} sync with status=${result.status}, mode=${result.mode}, known=${result.known}, synced=${result.synced}, missing=${result.missing}.`
+        );
+    } catch (error) {
+        console.error(`[LDAP Sync] ${source} sync failed:`, error);
+    } finally {
+        ldapUserSyncInProgress = false;
+    }
+};
 
 export const startLdapUserSyncJob = () => {
     if (!env.LDAP_SYNC_ENABLED) {
@@ -10,22 +29,6 @@ export const startLdapUserSyncJob = () => {
         return;
     }
 
-    cron.schedule('0 * * * *', async () => {
-        if (ldapUserSyncInProgress) {
-            console.log('[LDAP Sync] Previous sync is still running; skipping this hour.');
-            return;
-        }
-
-        ldapUserSyncInProgress = true;
-        try {
-            const result = await syncKnownLdapUsers();
-            console.log(
-                `[LDAP Sync] Finished with status=${result.status}, known=${result.known}, synced=${result.synced}, missing=${result.missing}.`
-            );
-        } catch (error) {
-            console.error('[LDAP Sync] Failed:', error);
-        } finally {
-            ldapUserSyncInProgress = false;
-        }
-    });
+    void runLdapUserSync('startup');
+    cron.schedule('0 * * * *', () => void runLdapUserSync('schedule'));
 };

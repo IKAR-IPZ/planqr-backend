@@ -40,6 +40,7 @@ router.get('/validate', DeviceListController.validateRoomAndSecretUrl);
 router.get('/pending/by-code', DeviceListController.getPendingDeviceByCode);
 router.get('/display-settings', DeviceListController.getDisplaySettings);
 router.put('/display-settings', DeviceListController.updateDisplaySettings);
+router.put('/emergency-alert', DeviceListController.updateEmergencyAlert);
 router.patch('/display-settings/batch', DeviceListController.batchUpdateDeviceDisplaySettings);
 router.post('/reload-all', DeviceListController.reloadAllTablets);
 router.post('/:id/request-display-profile', DeviceListController.requestDisplayProfile);

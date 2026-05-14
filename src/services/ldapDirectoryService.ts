@@ -21,11 +21,7 @@ export class LdapDirectoryService {
     private readonly ldapDnPattern = env.LDAP_DN;
 
     isConfigured() {
-        return Boolean(
-            env.LDAP_SYNC_ENABLED &&
-            env.LDAP_SYNC_BIND_DN &&
-            env.LDAP_SYNC_BIND_PASSWORD
-        );
+        return env.LDAP_SYNC_ENABLED;
     }
 
     async findUsers(usernames: string[]): Promise<Map<string, LdapDirectoryUser>> {
@@ -64,9 +60,28 @@ export class LdapDirectoryService {
         }
     }
 
+    async findAllUsers(): Promise<LdapDirectoryUser[]> {
+        if (!this.isConfigured()) {
+            return [];
+        }
+
+        const client = ldap.createClient({
+            url: this.ldapUrl,
+            timeout: 30000,
+            connectTimeout: 10000,
+        });
+
+        try {
+            await this.bind(client);
+            return Array.from((await this.searchAll(client)).values());
+        } finally {
+            this.closeClient(client);
+        }
+    }
+
     private bind(client: ldap.Client) {
         return new Promise<void>((resolve, reject) => {
-            client.bind(env.LDAP_SYNC_BIND_DN ?? '', env.LDAP_SYNC_BIND_PASSWORD ?? '', (error) => {
+            client.bind('', '', (error) => {
                 if (error) {
                     reject(error);
                     return;
@@ -107,6 +122,47 @@ export class LdapDirectoryService {
                 result.on('end', (status) => {
                     if (status && status.status !== 0) {
                         reject(new Error(`LDAP search ended with status ${status.status}`));
+                        return;
+                    }
+
+                    resolve(users);
+                });
+            });
+        });
+    }
+
+    private searchAll(client: ldap.Client) {
+        return new Promise<Map<string, LdapDirectoryUser>>((resolve, reject) => {
+            const users = new Map<string, LdapDirectoryUser>();
+            const searchOptions: ldap.SearchOptions = {
+                scope: 'sub',
+                filter: env.LDAP_SYNC_FULL_FILTER,
+                attributes: ['uid', 'givenName', 'sn', 'title', 'mail', 'displayName', 'cn'],
+                paged: {
+                    pageSize: env.LDAP_SYNC_FULL_PAGE_SIZE,
+                },
+                sizeLimit: env.LDAP_SYNC_FULL_USER_LIMIT > 0
+                    ? env.LDAP_SYNC_FULL_USER_LIMIT
+                    : undefined,
+            };
+
+            client.search(this.getSearchBaseDn(), searchOptions, (error, result) => {
+                if (error) {
+                    reject(error);
+                    return;
+                }
+
+                result.on('searchEntry', (entry) => {
+                    const user = this.toDirectoryUser(entry);
+                    if (user) {
+                        users.set(user.username, user);
+                    }
+                });
+
+                result.on('error', reject);
+                result.on('end', (status) => {
+                    if (status && status.status !== 0) {
+                        reject(new Error(`LDAP full search ended with status ${status.status}`));
                         return;
                     }
 

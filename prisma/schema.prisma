@@ -64,6 +64,12 @@ model TabletDisplaySettings {
   nightModeStart   String   @default("22:00") @map("night_mode_start")
   nightModeEnd     String   @default("06:00") @map("night_mode_end")
   blackScreenAfterScheduleEnd Boolean @default(false) @map("black_screen_after_schedule_end")
+  emergencyAlertEnabled Boolean @default(false) @map("emergency_alert_enabled")
+  emergencyAlertAudioEnabled Boolean @default(true) @map("emergency_alert_audio_enabled")
+  emergencyAlertMessagePl String @default("EWAKUACJA. Opuść budynek najbliższym bezpiecznym wyjściem ewakuacyjnym. Nie korzystaj z wind. Wykonuj polecenia obsługi.") @map("emergency_alert_message_pl")
+  emergencyAlertMessageEn String @default("EVACUATION. Leave the building using the nearest safe emergency exit. Do not use elevators. Follow staff instructions.") @map("emergency_alert_message_en")
+  emergencyAlertUpdatedAt DateTime? @map("emergency_alert_updated_at") @db.Timestamptz(6)
+  emergencyAlertUpdatedBy String? @map("emergency_alert_updated_by")
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 

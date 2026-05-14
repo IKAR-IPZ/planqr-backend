@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { DeviceList, PrismaClient } from '@prisma/client';
+import { AuthRequest } from '../middlewares/authMiddleware';
 import {
     buildTabletPath,
     getConnectedTabletCount,
@@ -8,8 +9,12 @@ import {
     TabletDeviceConfig
 } from '../services/tabletStreamService';
 import {
+    DEFAULT_TABLET_EMERGENCY_ALERT_SETTINGS,
+    getTabletEmergencyAlertSettings,
     getTabletNightModeSettings,
+    TabletEmergencyAlertSettings,
     TabletNightModeSettings,
+    updateTabletEmergencyAlertSettings,
     updateTabletNightModeSettings
 } from '../services/tabletDisplaySettingsService';
 import {
@@ -30,7 +35,8 @@ const PENDING_DEVICE_CODE_PATTERN = /^\d{6}$/;
 
 const toTabletConfig = (
     device: DeviceList,
-    nightMode: TabletNightModeSettings
+    nightMode: TabletNightModeSettings,
+    emergencyAlert: TabletEmergencyAlertSettings
 ): TabletDeviceConfig => {
     const displaySettings = serializeDeviceDisplaySettings(device);
 
@@ -40,7 +46,8 @@ const toTabletConfig = (
         secretUrl: device.deviceURL,
         nightMode,
         displayTheme: displaySettings.displayTheme,
-        blackScreenMode: displaySettings.blackScreenMode
+        blackScreenMode: displaySettings.blackScreenMode,
+        emergencyAlert
     };
 };
 
@@ -111,6 +118,50 @@ const parseNightModeSettingsPayload = (
             startTime,
             endTime,
             blackScreenAfterScheduleEnd
+        }
+    };
+};
+
+const normalizeEmergencyMessage = (value: unknown, fallback: string) =>
+    typeof value === 'string' && value.trim()
+        ? value.trim().replace(/\s+/g, ' ')
+        : fallback;
+
+const parseEmergencyAlertSettingsPayload = (
+    body: Request['body']
+): {
+    settings?: Pick<TabletEmergencyAlertSettings, 'enabled' | 'audioEnabled' | 'messagePl' | 'messageEn'>;
+    error?: string;
+} => {
+    const enabled = typeof body?.enabled === 'boolean' ? body.enabled : null;
+    const audioEnabled = typeof body?.audioEnabled === 'boolean' ? body.audioEnabled : null;
+    const messagePl = normalizeEmergencyMessage(
+        body?.messagePl,
+        DEFAULT_TABLET_EMERGENCY_ALERT_SETTINGS.messagePl
+    );
+    const messageEn = normalizeEmergencyMessage(
+        body?.messageEn,
+        DEFAULT_TABLET_EMERGENCY_ALERT_SETTINGS.messageEn
+    );
+
+    if (enabled === null) {
+        return { error: 'Pole enabled musi być wartością logiczną.' };
+    }
+
+    if (audioEnabled === null) {
+        return { error: 'Pole audioEnabled musi być wartością logiczną.' };
+    }
+
+    if (messagePl.length > 500 || messageEn.length > 500) {
+        return { error: 'Komunikaty ewakuacyjne nie mogą przekraczać 500 znaków.' };
+    }
+
+    return {
+        settings: {
+            enabled,
+            audioEnabled,
+            messagePl,
+            messageEn
         }
     };
 };
@@ -197,6 +248,7 @@ const buildDeviceCommand = (
     device: DeviceList,
     reason: string,
     nightMode: TabletNightModeSettings,
+    emergencyAlert: TabletEmergencyAlertSettings,
     options?: {
         fallbackType?: Extract<TabletCommand['type'], 'reload' | 'registry-reset' | 'config-updated'>;
         hardReload?: boolean;
@@ -205,7 +257,7 @@ const buildDeviceCommand = (
     const fallbackType = options?.fallbackType ?? 'config-updated';
     const hardReload = options?.hardReload ?? true;
     const issuedAt = new Date().toISOString();
-    const config = toTabletConfig(device, nightMode);
+    const config = toTabletConfig(device, nightMode, emergencyAlert);
 
     if (device.status === 'ACTIVE' && device.deviceClassroom && device.deviceURL) {
         return {
@@ -291,11 +343,12 @@ export class DeviceListController {
     static async getDisplaySettings(req: Request, res: Response) {
         try {
             const nightMode = await getTabletNightModeSettings(prisma);
-            res.json({ nightMode });
+            const emergencyAlert = await getTabletEmergencyAlertSettings(prisma);
+            res.json({ nightMode, emergencyAlert });
         } catch (error) {
             console.error('Error fetching display settings:', error);
             res.status(500).json({
-                message: 'Nie udało się pobrać ustawień trybu nocnego tabletów.'
+                message: 'Nie udało się pobrać ustawień tabletów.'
             });
         }
     }
@@ -312,6 +365,7 @@ export class DeviceListController {
         try {
             await ensureDeviceListDisplaySettingsColumns(prisma);
             const nightMode = await updateTabletNightModeSettings(prisma, parsed.settings);
+            const emergencyAlert = await getTabletEmergencyAlertSettings(prisma);
             const activeDevices = await prisma.deviceList.findMany({
                 where: { status: 'ACTIVE' }
             });
@@ -320,7 +374,7 @@ export class DeviceListController {
             for (const device of activeDevices) {
                 delivered += sendTabletCommandToDevice(
                     device.deviceId,
-                    buildDeviceCommand(device, 'admin-night-mode-settings-updated', nightMode, {
+                    buildDeviceCommand(device, 'admin-night-mode-settings-updated', nightMode, emergencyAlert, {
                         fallbackType: 'config-updated',
                         hardReload: false
                     })
@@ -330,6 +384,7 @@ export class DeviceListController {
             res.status(200).json({
                 message: 'Zapisano ustawienia trybu nocnego tabletów.',
                 nightMode,
+                emergencyAlert,
                 delivered,
                 connectedClients: getConnectedTabletCount(),
                 updatedDevices: activeDevices.length
@@ -338,6 +393,56 @@ export class DeviceListController {
             console.error('Error updating display settings:', error);
             res.status(500).json({
                 message: 'Nie udało się zapisać ustawień trybu nocnego tabletów.'
+            });
+        }
+    }
+
+    // PUT /api/devices/emergency-alert
+    static async updateEmergencyAlert(req: AuthRequest, res: Response) {
+        const parsed = parseEmergencyAlertSettingsPayload(req.body);
+
+        if (!parsed.settings) {
+            res.status(400).json({ message: parsed.error });
+            return;
+        }
+
+        try {
+            await ensureDeviceListDisplaySettingsColumns(prisma);
+            const emergencyAlert = await updateTabletEmergencyAlertSettings(
+                prisma,
+                parsed.settings,
+                req.user?.login ?? null
+            );
+            const nightMode = await getTabletNightModeSettings(prisma);
+            const activeDevices = await prisma.deviceList.findMany({
+                where: { status: 'ACTIVE' }
+            });
+
+            let delivered = 0;
+            for (const device of activeDevices) {
+                delivered += sendTabletCommandToDevice(
+                    device.deviceId,
+                    buildDeviceCommand(device, 'admin-emergency-alert-updated', nightMode, emergencyAlert, {
+                        fallbackType: 'config-updated',
+                        hardReload: false
+                    })
+                );
+            }
+
+            res.status(200).json({
+                message: emergencyAlert.enabled
+                    ? 'Włączono alarm ewakuacyjny tabletów.'
+                    : 'Wyłączono alarm ewakuacyjny tabletów.',
+                nightMode,
+                emergencyAlert,
+                delivered,
+                connectedClients: getConnectedTabletCount(),
+                updatedDevices: activeDevices.length
+            });
+        } catch (error) {
+            console.error('Error updating emergency alert settings:', error);
+            res.status(500).json({
+                message: 'Nie udało się zapisać ustawień alarmu ewakuacyjnego.'
             });
         }
     }
@@ -366,9 +471,10 @@ export class DeviceListController {
         });
 
         const nightMode = await getTabletNightModeSettings(prisma);
+        const emergencyAlert = await getTabletEmergencyAlertSettings(prisma);
         const delivered = sendTabletCommandToDevice(
             updatedDevice.deviceId,
-            buildDeviceCommand(updatedDevice, 'admin-device-display-settings-updated', nightMode, {
+            buildDeviceCommand(updatedDevice, 'admin-device-display-settings-updated', nightMode, emergencyAlert, {
                 fallbackType: 'config-updated',
                 hardReload: false
             })
@@ -410,12 +516,13 @@ export class DeviceListController {
         });
 
         const nightMode = await getTabletNightModeSettings(prisma);
+        const emergencyAlert = await getTabletEmergencyAlertSettings(prisma);
         let delivered = 0;
 
         for (const device of updatedDevices) {
             delivered += sendTabletCommandToDevice(
                 device.deviceId,
-                buildDeviceCommand(device, 'admin-batch-device-display-settings-updated', nightMode, {
+                buildDeviceCommand(device, 'admin-batch-device-display-settings-updated', nightMode, emergencyAlert, {
                     fallbackType: 'config-updated',
                     hardReload: false
                 })
@@ -500,10 +607,11 @@ export class DeviceListController {
                     ? 'device-activated'
                     : 'device-config-updated';
                 const nightMode = await getTabletNightModeSettings(prisma);
+                const emergencyAlert = await getTabletEmergencyAlertSettings(prisma);
 
                 sendTabletCommandToDevice(
                     updatedDevice.deviceId,
-                    buildDeviceCommand(updatedDevice, reason, nightMode, {
+                    buildDeviceCommand(updatedDevice, reason, nightMode, emergencyAlert, {
                         fallbackType: 'config-updated',
                         hardReload: true
                     })
@@ -534,6 +642,7 @@ export class DeviceListController {
 
             await prisma.deviceList.delete({ where: { id } });
             const nightMode = await getTabletNightModeSettings(prisma);
+            const emergencyAlert = await getTabletEmergencyAlertSettings(prisma);
             sendTabletCommandToDevice(
                 current.deviceId,
                 {
@@ -548,7 +657,8 @@ export class DeviceListController {
                         secretUrl: null,
                         nightMode,
                         displayTheme: DEFAULT_DEVICE_DISPLAY_SETTINGS.displayTheme,
-                        blackScreenMode: DEFAULT_DEVICE_DISPLAY_SETTINGS.blackScreenMode
+                        blackScreenMode: DEFAULT_DEVICE_DISPLAY_SETTINGS.blackScreenMode,
+                        emergencyAlert
                     }
                 }
             );
@@ -567,13 +677,14 @@ export class DeviceListController {
             ? req.body.reason
             : 'admin-broadcast-reload';
         const nightMode = await getTabletNightModeSettings(prisma);
+        const emergencyAlert = await getTabletEmergencyAlertSettings(prisma);
         const devices = await prisma.deviceList.findMany();
 
         let delivered = 0;
         for (const device of devices) {
             delivered += sendTabletCommandToDevice(
                 device.deviceId,
-                buildDeviceCommand(device, reason, nightMode, {
+                buildDeviceCommand(device, reason, nightMode, emergencyAlert, {
                     fallbackType: 'reload',
                     hardReload: true
                 })
@@ -603,10 +714,11 @@ export class DeviceListController {
             ? req.body.reason
             : 'admin-device-reload';
         const nightMode = await getTabletNightModeSettings(prisma);
+        const emergencyAlert = await getTabletEmergencyAlertSettings(prisma);
 
         const delivered = sendTabletCommandToDevice(
             device.deviceId,
-            buildDeviceCommand(device, reason, nightMode, {
+            buildDeviceCommand(device, reason, nightMode, emergencyAlert, {
                 fallbackType: 'reload',
                 hardReload: true
             })
