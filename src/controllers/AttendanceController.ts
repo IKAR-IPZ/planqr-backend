@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import { env } from '../config/env';
+import { findCachedLdapUsersByUsername, type CachedLdapUser } from '../services/ldapUserCacheService';
 
 const prisma = new PrismaClient();
 
@@ -69,11 +70,11 @@ const scanSchema = z.object({
     scanned_at: z.string().datetime().optional(),
     role: z.enum(['dydaktyk', 'lecturer', 'teacher', 'student', 'user']).optional(),
 }).superRefine((value, ctx) => {
-    if (!value.card_id && !value.card_hex) {
+    if (!value.card_id && !value.card_hex && !value.username) {
         ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ['card_hex'],
-            message: 'card_hex or card_id is required',
+            message: 'card_hex, card_id, or username is required',
         });
     }
 });
@@ -225,12 +226,15 @@ const findSessionForList = async (sessionId?: number) => {
     return latestSession ? attachUsersToSession(latestSession) : null;
 };
 
-const serializeAttendanceUser = (user: AttendanceUserRecord) => ({
+const serializeAttendanceUser = (user: AttendanceUserRecord, cachedUser?: CachedLdapUser) => ({
     id: user.id,
     userId: user.id,
     studentId: user.cardHex,
     albumNumber: user.username || user.cardHex,
     username: user.username,
+    displayName: cachedUser?.displayName ?? user.username,
+    givenName: cachedUser?.givenName ?? null,
+    surname: cachedUser?.surname ?? null,
     cardHex: user.cardHex,
     present: true,
     source: user.status === 'manual' ? 'manual' : 'scanner',
@@ -242,11 +246,18 @@ const serializeAttendanceUser = (user: AttendanceUserRecord) => ({
     scanCount: 1,
 });
 
-const serializeAttendanceList = (
+const serializeAttendanceList = async (
     session: AttendanceSessionWithUsers,
     lecturerId: string | null,
 ) => {
-    const students = session.users.map(serializeAttendanceUser);
+    const cachedUsers = await findCachedLdapUsersByUsername([
+        session.username,
+        ...session.users.map((user) => user.username),
+    ]);
+    const students = session.users.map((user) =>
+        serializeAttendanceUser(user, cachedUsers.get(normalizeText(user.username).toLowerCase()))
+    );
+    const lecturer = cachedUsers.get(normalizeText(session.username).toLowerCase());
 
     return {
         status: session.status ?? (session.isActive ? 'open' : 'closed'),
@@ -254,6 +265,7 @@ const serializeAttendanceList = (
         dydaktykId: session.id,
         lecturerId,
         lecturerUsername: session.username,
+        lecturerDisplayName: lecturer?.displayName ?? session.username,
         lecturerCardHex: session.cardHex,
         doorId: null,
         openedAt: toIsoString(session.openedAt),
@@ -431,8 +443,9 @@ export class AttendanceController {
                 return;
             }
 
-            const cardHex = getCardHex(parseResult.data);
-            const username = normalizeText(parseResult.data.username) || cardHex;
+            const parsedUsername = normalizeText(parseResult.data.username);
+            const cardHex = getCardHex(parseResult.data) || normalizeCardHex(parsedUsername);
+            const username = parsedUsername || cardHex;
             const scannedAt = getTimestamp(parseResult.data.scanned_at);
             const role = parseResult.data.role;
 
@@ -444,7 +457,7 @@ export class AttendanceController {
                     res.status(200).json({
                         status: 'success',
                         action: 'closed',
-                        session: serializeAttendanceList(closedSession, null),
+                        session: await serializeAttendanceList(closedSession, null),
                     });
                     return;
                 }
@@ -464,7 +477,7 @@ export class AttendanceController {
                 res.status(200).json({
                     status: 'success',
                     action: 'closed',
-                    session: serializeAttendanceList(closedSession, null),
+                    session: await serializeAttendanceList(closedSession, null),
                 });
                 return;
             }
@@ -590,7 +603,7 @@ export class AttendanceController {
             }
 
             const closedSession = await closeAttendanceSessionRecord(session, new Date());
-            res.status(200).json(serializeAttendanceList(closedSession, getAuthenticatedLecturerId(req)));
+            res.status(200).json(await serializeAttendanceList(closedSession, getAuthenticatedLecturerId(req)));
         } catch (error) {
             console.error('Error closing attendance session:', error);
             res.status(500).json({ status: 'error', message: 'Internal server error' });
@@ -616,7 +629,7 @@ export class AttendanceController {
             }
 
             const sentSession = await closeAttendanceSessionRecord(session, session.closedAt ?? new Date(), 'sent');
-            res.status(200).json(serializeAttendanceList(sentSession, getAuthenticatedLecturerId(req)));
+            res.status(200).json(await serializeAttendanceList(sentSession, getAuthenticatedLecturerId(req)));
         } catch (error) {
             console.error('Error sending attendance session:', error);
             res.status(500).json({ status: 'error', message: 'Internal server error' });
@@ -746,7 +759,7 @@ export class AttendanceController {
                 return;
             }
 
-            res.status(200).json(serializeAttendanceList(session, getAuthenticatedLecturerId(req)));
+            res.status(200).json(await serializeAttendanceList(session, getAuthenticatedLecturerId(req)));
         } catch (error) {
             console.error('Error building attendance list:', error);
             res.status(500).json({ status: 'error', message: 'Internal server error' });

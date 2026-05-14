@@ -8,6 +8,7 @@ import {
     type IdentityClaims
 } from '../services/authAccessService';
 import { createAccessToken, decodeIdentityClaimsFromToken } from '../services/authTokenService';
+import { upsertAuthenticatedLdapUser } from '../services/ldapUserCacheService';
 
 const ldapService = new LdapService();
 
@@ -122,6 +123,13 @@ export class AuthController {
                         access: toSessionResponse(user, 'Access denied').access
                     });
                 }
+
+                void upsertAuthenticatedLdapUser({
+                    username,
+                    givenName: identity.givenName,
+                    surname: identity.surname,
+                    title: identity.title,
+                });
 
                 const token = createAccessToken(identity);
                 res.cookie('jwt', token, {

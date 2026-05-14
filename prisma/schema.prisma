@@ -70,6 +70,23 @@ model TabletDisplaySettings {
   @@map("tablet_display_settings")
 }
 
+model LdapUser {
+  username     String    @id
+  displayName  String    @map("display_name")
+  givenName    String?   @map("given_name")
+  surname      String?
+  title        String?
+  email        String?
+  isActive     Int       @default(1) @map("is_active")
+  ldapSyncedAt DateTime? @map("ldap_synced_at") @db.Timestamp(6)
+  createdAt    DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt    DateTime? @default(now()) @map("updated_at") @db.Timestamp(6)
+
+  @@index([displayName], map: "idx_ldap_users_display_name")
+  @@index([isActive], map: "idx_ldap_users_active")
+  @@map("ldap_users")
+}
+
 model TblDydaktyk {
   id        Int       @id @default(autoincrement())
   username  String    @unique(map: "idx_dydaktyk_username_unique")

@@ -18,6 +18,7 @@ import https from "https";
 import fs from "fs";
 import path from "path";
 import { applyBasicSecurityHeaders } from "./middlewares/securityMiddleware";
+import { startLdapUserSyncJob } from "./jobs/ldapUserSyncJob";
 
 
 const app = express();
@@ -99,6 +100,7 @@ const startCleanupJob = () => {
 };
 
 startCleanupJob();
+startLdapUserSyncJob();
 
 
 
