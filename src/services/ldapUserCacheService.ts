@@ -1,3 +1,4 @@
+import ldap from 'ldapjs';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { env } from '../config/env';
 import { LdapDirectoryService, type LdapDirectoryUser } from './ldapDirectoryService';
@@ -24,6 +25,7 @@ const toNullableText = (value?: string | null) => normalizeText(value) || null;
 const buildDisplayName = (givenName?: string | null, surname?: string | null, fallback?: string | null) =>
     [normalizeText(surname), normalizeText(givenName)].filter(Boolean).join(' ').trim() ||
     normalizeText(fallback);
+const LDAP_ADMIN_LIMIT_EXCEEDED_CODE = '11';
 
 export const findCachedLdapUsersByUsername = async (usernames: string[]) => {
     const normalizedUsernames = Array.from(
@@ -212,44 +214,79 @@ const getKnownUsernamesForLdapSync = async () => {
     return rows.map((row) => row.username);
 };
 
-const syncAllLdapUsers = async () => {
-    const syncStartedAt = new Date();
-    const directoryUsers = await ldapDirectoryService.findAllUsers();
-    let synced = 0;
-
-    for (const user of directoryUsers) {
-        await upsertCachedLdapUser(user);
-        synced += 1;
+const isAdminLimitExceededError = (error: unknown) => {
+    if (error instanceof ldap.AdminLimitExceededError) {
+        return true;
     }
 
-    if (env.LDAP_SYNC_FULL_USER_LIMIT === 0) {
-        await markUsersNotSyncedSinceInactive(syncStartedAt);
-    }
+    const name = getErrorProperty(error, 'name');
+    const code = getErrorProperty(error, 'code');
+    const message = getErrorMessage(error).toLowerCase();
 
-    return {
-        status: 'success',
-        mode: 'all',
-        known: directoryUsers.length,
-        synced,
-        missing: 0,
-    };
+    return (
+        name === 'AdminLimitExceededError' ||
+        code === LDAP_ADMIN_LIMIT_EXCEEDED_CODE ||
+        message.includes('admin limit exceeded')
+    );
 };
 
-export const syncLdapUsers = async () => {
-    if (!env.LDAP_SYNC_ENABLED || !ldapDirectoryService.isConfigured()) {
+const getErrorMessage = (error: unknown): string => {
+    if (error instanceof Error && error.message) {
+        return error.message;
+    }
+
+    if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') {
+        return error.message;
+    }
+
+    return 'Unknown LDAP error';
+};
+
+const getErrorProperty = (error: unknown, property: 'name' | 'code'): string | null => {
+    if (!error || typeof error !== 'object' || !(property in error)) {
+        return null;
+    }
+
+    const errorRecord = error as Record<string, unknown>;
+    const value = errorRecord[property];
+    return typeof value === 'string' || typeof value === 'number' ? String(value) : null;
+};
+
+const syncAllLdapUsers = async () => {
+    const syncStartedAt = new Date();
+    try {
+        const directoryUsers = await ldapDirectoryService.findAllUsers();
+        let synced = 0;
+
+        for (const user of directoryUsers) {
+            await upsertCachedLdapUser(user);
+            synced += 1;
+        }
+
+        if (env.LDAP_SYNC_FULL_USER_LIMIT === 0) {
+            await markUsersNotSyncedSinceInactive(syncStartedAt);
+        }
+
         return {
-            status: 'disabled',
-            mode: env.LDAP_SYNC_MODE,
-            known: 0,
-            synced: 0,
+            status: 'success',
+            mode: 'all',
+            known: directoryUsers.length,
+            synced,
             missing: 0,
         };
-    }
+    } catch (error) {
+        if (!isAdminLimitExceededError(error)) {
+            throw error;
+        }
 
-    if (env.LDAP_SYNC_MODE === 'all') {
-        return syncAllLdapUsers();
+        console.warn(
+            '[LDAP Cache] Full LDAP sync hit admin limit; falling back to known users.'
+        );
+        return syncKnownLdapUsers();
     }
+};
 
+const syncKnownLdapUsers = async () => {
     const usernames = await getKnownUsernamesForLdapSync();
     if (!usernames.length) {
         return {
@@ -286,4 +323,22 @@ export const syncLdapUsers = async () => {
         synced,
         missing,
     };
+};
+
+export const syncLdapUsers = async () => {
+    if (!env.LDAP_SYNC_ENABLED || !ldapDirectoryService.isConfigured()) {
+        return {
+            status: 'disabled',
+            mode: env.LDAP_SYNC_MODE,
+            known: 0,
+            synced: 0,
+            missing: 0,
+        };
+    }
+
+    if (env.LDAP_SYNC_MODE === 'all') {
+        return syncAllLdapUsers();
+    }
+
+    return syncKnownLdapUsers();
 };

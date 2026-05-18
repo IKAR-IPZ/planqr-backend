@@ -2,8 +2,6 @@ import { Request, Response } from 'express';
 import { DeviceList, PrismaClient } from '@prisma/client';
 import { registerTabletStream } from '../services/tabletStreamService';
 import {
-    DEFAULT_TABLET_EMERGENCY_ALERT_SETTINGS,
-    getTabletEmergencyAlertSettings,
     DEFAULT_TABLET_NIGHT_MODE_SETTINGS,
     getTabletNightModeSettings
 } from '../services/tabletDisplaySettingsService';
@@ -11,6 +9,11 @@ import {
     ensureDeviceListDisplaySettingsColumns,
     serializeDeviceDisplaySettings
 } from '../services/deviceDisplaySettingsService';
+import {
+    DEFAULT_TABLET_PRIORITY_MESSAGE,
+    getPriorityMessageForDevice,
+    TabletPriorityMessage
+} from '../services/tabletPriorityMessageService';
 import { generateDeviceSecret } from '../services/deviceSecretService';
 import { getRequestClientIp } from '../middlewares/securityMiddleware';
 
@@ -38,12 +41,12 @@ const loadNightModeSettings = async () => {
     }
 };
 
-const loadEmergencyAlertSettings = async () => {
+const loadPriorityMessage = async (deviceId: number): Promise<TabletPriorityMessage> => {
     try {
-        return await getTabletEmergencyAlertSettings(prisma);
+        return await getPriorityMessageForDevice(prisma, deviceId);
     } catch (error) {
-        console.error('[Registry] Failed to load tablet emergency alert settings:', error);
-        return DEFAULT_TABLET_EMERGENCY_ALERT_SETTINGS;
+        console.error('[Registry] Failed to load tablet priority message:', error);
+        return DEFAULT_TABLET_PRIORITY_MESSAGE;
     }
 };
 
@@ -110,7 +113,7 @@ const parseDisplayProfilePayload = (
 const buildDeviceConfig = (
     device: DeviceList | null,
     nightMode: Awaited<ReturnType<typeof loadNightModeSettings>>,
-    emergencyAlert: Awaited<ReturnType<typeof loadEmergencyAlertSettings>>
+    priorityMessage: TabletPriorityMessage
 ) => {
     if (!device || device.status !== 'ACTIVE') {
         return null;
@@ -125,7 +128,7 @@ const buildDeviceConfig = (
         nightMode,
         displayTheme: displaySettings.displayTheme,
         blackScreenMode: displaySettings.blackScreenMode,
-        emergencyAlert
+        priorityMessage
     };
 };
 
@@ -190,12 +193,15 @@ export class RegistryController {
         }
 
         const nightMode = await loadNightModeSettings();
-        const emergencyAlert = await loadEmergencyAlertSettings();
+        const priorityMessage =
+            device.status === 'ACTIVE'
+                ? await loadPriorityMessage(device.id)
+                : DEFAULT_TABLET_PRIORITY_MESSAGE;
 
         // Return status
         return res.json({
             status: device.status,
-            config: buildDeviceConfig(device, nightMode, emergencyAlert)
+            config: buildDeviceConfig(device, nightMode, priorityMessage)
         });
     }
 
@@ -262,11 +268,14 @@ export class RegistryController {
         }
 
         const nightMode = await loadNightModeSettings();
-        const emergencyAlert = await loadEmergencyAlertSettings();
+        const priorityMessage =
+            device.status === 'ACTIVE'
+                ? await loadPriorityMessage(device.id)
+                : DEFAULT_TABLET_PRIORITY_MESSAGE;
 
         return res.json({
             status: device.status,
-            config: buildDeviceConfig(device, nightMode, emergencyAlert)
+            config: buildDeviceConfig(device, nightMode, priorityMessage)
         });
     }
 }

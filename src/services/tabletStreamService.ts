@@ -1,6 +1,7 @@
 import { Response } from 'express';
-import { TabletEmergencyAlertSettings, TabletNightModeSettings } from './tabletDisplaySettingsService';
+import { TabletNightModeSettings } from './tabletDisplaySettingsService';
 import { DeviceBlackScreenMode, TabletDisplayTheme } from './deviceDisplaySettingsService';
+import { TabletPriorityMessage } from './tabletPriorityMessageService';
 
 export interface TabletDeviceConfig {
     status: string;
@@ -9,7 +10,7 @@ export interface TabletDeviceConfig {
     nightMode: TabletNightModeSettings;
     displayTheme: TabletDisplayTheme;
     blackScreenMode: DeviceBlackScreenMode;
-    emergencyAlert: TabletEmergencyAlertSettings;
+    priorityMessage: TabletPriorityMessage;
 }
 
 export interface TabletCommand {

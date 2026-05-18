@@ -9,12 +9,8 @@ import {
     TabletDeviceConfig
 } from '../services/tabletStreamService';
 import {
-    DEFAULT_TABLET_EMERGENCY_ALERT_SETTINGS,
-    getTabletEmergencyAlertSettings,
     getTabletNightModeSettings,
-    TabletEmergencyAlertSettings,
     TabletNightModeSettings,
-    updateTabletEmergencyAlertSettings,
     updateTabletNightModeSettings
 } from '../services/tabletDisplaySettingsService';
 import {
@@ -25,6 +21,18 @@ import {
     isTabletDisplayTheme,
     serializeDeviceDisplaySettings
 } from '../services/deviceDisplaySettingsService';
+import {
+    activatePriorityMessageForDevices,
+    clearPriorityMessageForDevices,
+    createPriorityMessageTemplate as createPriorityMessageTemplateRecord,
+    DEFAULT_TABLET_PRIORITY_MESSAGE,
+    ensurePriorityMessageTables,
+    getPriorityMessagesForDeviceIds,
+    inferPriorityMessageMediaType,
+    listPriorityMessageTemplates,
+    PriorityMessageMediaType,
+    TabletPriorityMessage
+} from '../services/tabletPriorityMessageService';
 import { generateDeviceSecret } from '../services/deviceSecretService';
 import { getDeviceConnectionStatus } from '../services/deviceStatusService';
 import { resolveEffectiveBlackScreen } from '../services/tabletBlackScreenService';
@@ -36,7 +44,7 @@ const PENDING_DEVICE_CODE_PATTERN = /^\d{6}$/;
 const toTabletConfig = (
     device: DeviceList,
     nightMode: TabletNightModeSettings,
-    emergencyAlert: TabletEmergencyAlertSettings
+    priorityMessage: TabletPriorityMessage
 ): TabletDeviceConfig => {
     const displaySettings = serializeDeviceDisplaySettings(device);
 
@@ -47,7 +55,7 @@ const toTabletConfig = (
         nightMode,
         displayTheme: displaySettings.displayTheme,
         blackScreenMode: displaySettings.blackScreenMode,
-        emergencyAlert
+        priorityMessage
     };
 };
 
@@ -63,7 +71,8 @@ const normalizePendingDeviceCode = (value: unknown) => {
 
 const serializeDevice = async (
     device: DeviceList,
-    nightMode: TabletNightModeSettings
+    nightMode: TabletNightModeSettings,
+    priorityMessage: TabletPriorityMessage = DEFAULT_TABLET_PRIORITY_MESSAGE
 ) => {
     const connectionStatus = getDeviceConnectionStatus(device);
     const displaySettings = serializeDeviceDisplaySettings(device);
@@ -79,7 +88,8 @@ const serializeDevice = async (
         blackScreenMode: displaySettings.blackScreenMode,
         ...blackScreenState,
         connectionStatus,
-        isConnected: connectionStatus === 'ONLINE'
+        isConnected: connectionStatus === 'ONLINE',
+        priorityMessage
     };
 };
 
@@ -122,47 +132,83 @@ const parseNightModeSettingsPayload = (
     };
 };
 
-const normalizeEmergencyMessage = (value: unknown, fallback: string) =>
-    typeof value === 'string' && value.trim()
-        ? value.trim().replace(/\s+/g, ' ')
-        : fallback;
+const normalizePriorityMessageName = (value: unknown) =>
+    typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : '';
 
-const parseEmergencyAlertSettingsPayload = (
+const normalizePriorityMessageUrl = (value: unknown) =>
+    typeof value === 'string' ? value.trim() : '';
+
+const isAllowedPriorityMessageUrl = (value: string) =>
+    value.startsWith('/') || value.startsWith('https://') || value.startsWith('http://');
+
+const parsePriorityMessageTemplatePayload = (
     body: Request['body']
 ): {
-    settings?: Pick<TabletEmergencyAlertSettings, 'enabled' | 'audioEnabled' | 'messagePl' | 'messageEn'>;
+    template?: { name: string; imageUrl: string; mediaType: PriorityMessageMediaType };
     error?: string;
 } => {
-    const enabled = typeof body?.enabled === 'boolean' ? body.enabled : null;
-    const audioEnabled = typeof body?.audioEnabled === 'boolean' ? body.audioEnabled : null;
-    const messagePl = normalizeEmergencyMessage(
-        body?.messagePl,
-        DEFAULT_TABLET_EMERGENCY_ALERT_SETTINGS.messagePl
-    );
-    const messageEn = normalizeEmergencyMessage(
-        body?.messageEn,
-        DEFAULT_TABLET_EMERGENCY_ALERT_SETTINGS.messageEn
-    );
+    const name = normalizePriorityMessageName(body?.name);
+    const imageUrl = normalizePriorityMessageUrl(body?.imageUrl);
+    const mediaType =
+        body?.mediaType === 'image' || body?.mediaType === 'gif'
+            ? body.mediaType
+            : inferPriorityMessageMediaType(imageUrl);
 
-    if (enabled === null) {
-        return { error: 'Pole enabled musi być wartością logiczną.' };
+    if (!name || name.length > 120) {
+        return { error: 'Nazwa komunikatu jest wymagana i nie może przekraczać 120 znaków.' };
     }
 
-    if (audioEnabled === null) {
-        return { error: 'Pole audioEnabled musi być wartością logiczną.' };
-    }
-
-    if (messagePl.length > 500 || messageEn.length > 500) {
-        return { error: 'Komunikaty ewakuacyjne nie mogą przekraczać 500 znaków.' };
+    if (!imageUrl || imageUrl.length > 500 || !isAllowedPriorityMessageUrl(imageUrl)) {
+        return { error: 'URL obrazka/GIF musi zaczynać się od /, http:// albo https://.' };
     }
 
     return {
-        settings: {
-            enabled,
-            audioEnabled,
-            messagePl,
-            messageEn
+        template: {
+            name,
+            imageUrl,
+            mediaType
         }
+    };
+};
+
+const parsePriorityMessageDeviceIds = (
+    body: Request['body']
+): { deviceIds?: number[]; error?: string } => {
+    if (!Array.isArray(body?.deviceIds) || body.deviceIds.length === 0) {
+        return { error: 'Pole deviceIds musi zawierać co najmniej jedno id.' };
+    }
+
+    const deviceIds = Array.from(
+        new Set<number>(
+            body.deviceIds
+                .map((value: unknown) => Number(value))
+                .filter((value: number) => Number.isInteger(value) && value > 0)
+        )
+    );
+
+    if (deviceIds.length === 0) {
+        return { error: 'Pole deviceIds musi zawierać poprawne numery urządzeń.' };
+    }
+
+    return { deviceIds };
+};
+
+const parsePriorityMessageActivationPayload = (
+    body: Request['body']
+): { deviceIds?: number[]; templateId?: string; error?: string } => {
+    const parsedDevices = parsePriorityMessageDeviceIds(body);
+    if (!parsedDevices.deviceIds) {
+        return { error: parsedDevices.error };
+    }
+
+    const templateId = typeof body?.templateId === 'string' ? body.templateId.trim() : '';
+    if (!templateId || templateId.length > 80) {
+        return { error: 'Wybierz definicję komunikatu priorytetowego.' };
+    }
+
+    return {
+        deviceIds: parsedDevices.deviceIds,
+        templateId
     };
 };
 
@@ -248,7 +294,7 @@ const buildDeviceCommand = (
     device: DeviceList,
     reason: string,
     nightMode: TabletNightModeSettings,
-    emergencyAlert: TabletEmergencyAlertSettings,
+    priorityMessage: TabletPriorityMessage,
     options?: {
         fallbackType?: Extract<TabletCommand['type'], 'reload' | 'registry-reset' | 'config-updated'>;
         hardReload?: boolean;
@@ -257,7 +303,7 @@ const buildDeviceCommand = (
     const fallbackType = options?.fallbackType ?? 'config-updated';
     const hardReload = options?.hardReload ?? true;
     const issuedAt = new Date().toISOString();
-    const config = toTabletConfig(device, nightMode, emergencyAlert);
+    const config = toTabletConfig(device, nightMode, priorityMessage);
 
     if (device.status === 'ACTIVE' && device.deviceClassroom && device.deviceURL) {
         return {
@@ -291,9 +337,20 @@ export class DeviceListController {
     // GET /api/devices
     static async getDevices(req: Request, res: Response) {
         await ensureDeviceListDisplaySettingsColumns(prisma);
+        await ensurePriorityMessageTables(prisma);
         const devices = await prisma.deviceList.findMany();
         const nightMode = await getTabletNightModeSettings(prisma);
-        res.json(await Promise.all(devices.map((device) => serializeDevice(device, nightMode))));
+        const priorityMessages = await getPriorityMessagesForDeviceIds(
+            prisma,
+            devices.map((device) => device.id)
+        );
+        res.json(await Promise.all(devices.map((device) =>
+            serializeDevice(
+                device,
+                nightMode,
+                priorityMessages.get(device.id) ?? DEFAULT_TABLET_PRIORITY_MESSAGE
+            )
+        )));
     }
 
     // GET /api/devices/{id}
@@ -306,7 +363,12 @@ export class DeviceListController {
             return;
         }
         const nightMode = await getTabletNightModeSettings(prisma);
-        res.json(await serializeDevice(device, nightMode));
+        const priorityMessages = await getPriorityMessagesForDeviceIds(prisma, [device.id]);
+        res.json(await serializeDevice(
+            device,
+            nightMode,
+            priorityMessages.get(device.id) ?? DEFAULT_TABLET_PRIORITY_MESSAGE
+        ));
     }
 
     // GET /api/devices/pending/by-code?deviceId=123456
@@ -343,12 +405,180 @@ export class DeviceListController {
     static async getDisplaySettings(req: Request, res: Response) {
         try {
             const nightMode = await getTabletNightModeSettings(prisma);
-            const emergencyAlert = await getTabletEmergencyAlertSettings(prisma);
-            res.json({ nightMode, emergencyAlert });
+            res.json({ nightMode });
         } catch (error) {
             console.error('Error fetching display settings:', error);
             res.status(500).json({
                 message: 'Nie udało się pobrać ustawień tabletów.'
+            });
+        }
+    }
+
+    // GET /api/devices/priority-messages
+    static async getPriorityMessages(req: Request, res: Response) {
+        try {
+            const templates = await listPriorityMessageTemplates(prisma);
+            res.status(200).json({ templates });
+        } catch (error) {
+            console.error('Error fetching priority message templates:', error);
+            res.status(500).json({
+                message: 'Nie udało się pobrać komunikatów priorytetowych.'
+            });
+        }
+    }
+
+    // POST /api/devices/priority-messages/templates
+    static async createPriorityMessageTemplate(req: AuthRequest, res: Response) {
+        const parsed = parsePriorityMessageTemplatePayload(req.body);
+
+        if (!parsed.template) {
+            res.status(400).json({ message: parsed.error });
+            return;
+        }
+
+        try {
+            const template = await createPriorityMessageTemplateRecord(prisma, parsed.template);
+            const templates = await listPriorityMessageTemplates(prisma);
+
+            res.status(201).json({
+                message: 'Dodano definicję komunikatu priorytetowego.',
+                template,
+                templates
+            });
+        } catch (error) {
+            console.error('Error creating priority message template:', error);
+            res.status(500).json({
+                message: 'Nie udało się dodać komunikatu priorytetowego.'
+            });
+        }
+    }
+
+    // POST /api/devices/priority-messages/activate
+    static async activatePriorityMessage(req: AuthRequest, res: Response) {
+        const parsed = parsePriorityMessageActivationPayload(req.body);
+
+        if (!parsed.deviceIds || !parsed.templateId) {
+            res.status(400).json({ message: parsed.error });
+            return;
+        }
+
+        try {
+            const templates = await listPriorityMessageTemplates(prisma);
+            if (!templates.some((template) => template.id === parsed.templateId)) {
+                res.status(400).json({ message: 'Wybrana definicja komunikatu nie istnieje.' });
+                return;
+            }
+
+            const updatedDeviceIds = await activatePriorityMessageForDevices(prisma, {
+                deviceIds: parsed.deviceIds,
+                templateId: parsed.templateId,
+                updatedBy: req.user?.login ?? null
+            });
+
+            const updatedDevices = await prisma.deviceList.findMany({
+                where: {
+                    id: {
+                        in: updatedDeviceIds
+                    }
+                }
+            });
+            const nightMode = await getTabletNightModeSettings(prisma);
+            const priorityMessages = await getPriorityMessagesForDeviceIds(prisma, updatedDeviceIds);
+
+            let delivered = 0;
+            for (const device of updatedDevices) {
+                delivered += sendTabletCommandToDevice(
+                    device.deviceId,
+                    buildDeviceCommand(
+                        device,
+                        'admin-priority-message-activated',
+                        nightMode,
+                        priorityMessages.get(device.id) ?? DEFAULT_TABLET_PRIORITY_MESSAGE,
+                        {
+                            fallbackType: 'config-updated',
+                            hardReload: false
+                        }
+                    )
+                );
+            }
+
+            res.status(200).json({
+                message: 'Włączono komunikat priorytetowy na wybranych tabletach.',
+                delivered,
+                updatedCount: updatedDevices.length,
+                devices: await Promise.all(
+                    updatedDevices.map((device) =>
+                        serializeDevice(
+                            device,
+                            nightMode,
+                            priorityMessages.get(device.id) ?? DEFAULT_TABLET_PRIORITY_MESSAGE
+                        )
+                    )
+                )
+            });
+        } catch (error) {
+            console.error('Error activating priority message:', error);
+            res.status(500).json({
+                message: 'Nie udało się włączyć komunikatu priorytetowego.'
+            });
+        }
+    }
+
+    // POST /api/devices/priority-messages/clear
+    static async clearPriorityMessage(req: AuthRequest, res: Response) {
+        const parsed = parsePriorityMessageDeviceIds(req.body);
+
+        if (!parsed.deviceIds) {
+            res.status(400).json({ message: parsed.error });
+            return;
+        }
+
+        try {
+            const updatedDeviceIds = await clearPriorityMessageForDevices(prisma, {
+                deviceIds: parsed.deviceIds,
+                updatedBy: req.user?.login ?? null
+            });
+
+            const updatedDevices = await prisma.deviceList.findMany({
+                where: {
+                    id: {
+                        in: updatedDeviceIds
+                    }
+                }
+            });
+            const nightMode = await getTabletNightModeSettings(prisma);
+
+            let delivered = 0;
+            for (const device of updatedDevices) {
+                delivered += sendTabletCommandToDevice(
+                    device.deviceId,
+                    buildDeviceCommand(
+                        device,
+                        'admin-priority-message-cleared',
+                        nightMode,
+                        DEFAULT_TABLET_PRIORITY_MESSAGE,
+                        {
+                            fallbackType: 'config-updated',
+                            hardReload: false
+                        }
+                    )
+                );
+            }
+
+            res.status(200).json({
+                message: 'Wyłączono komunikat priorytetowy na wybranych tabletach.',
+                delivered,
+                updatedCount: updatedDevices.length,
+                devices: await Promise.all(
+                    updatedDevices.map((device) =>
+                        serializeDevice(device, nightMode, DEFAULT_TABLET_PRIORITY_MESSAGE)
+                    )
+                )
+            });
+        } catch (error) {
+            console.error('Error clearing priority message:', error);
+            res.status(500).json({
+                message: 'Nie udało się wyłączyć komunikatu priorytetowego.'
             });
         }
     }
@@ -365,26 +595,34 @@ export class DeviceListController {
         try {
             await ensureDeviceListDisplaySettingsColumns(prisma);
             const nightMode = await updateTabletNightModeSettings(prisma, parsed.settings);
-            const emergencyAlert = await getTabletEmergencyAlertSettings(prisma);
             const activeDevices = await prisma.deviceList.findMany({
                 where: { status: 'ACTIVE' }
             });
+            const priorityMessages = await getPriorityMessagesForDeviceIds(
+                prisma,
+                activeDevices.map((device) => device.id)
+            );
 
             let delivered = 0;
             for (const device of activeDevices) {
                 delivered += sendTabletCommandToDevice(
                     device.deviceId,
-                    buildDeviceCommand(device, 'admin-night-mode-settings-updated', nightMode, emergencyAlert, {
-                        fallbackType: 'config-updated',
-                        hardReload: false
-                    })
+                    buildDeviceCommand(
+                        device,
+                        'admin-night-mode-settings-updated',
+                        nightMode,
+                        priorityMessages.get(device.id) ?? DEFAULT_TABLET_PRIORITY_MESSAGE,
+                        {
+                            fallbackType: 'config-updated',
+                            hardReload: false
+                        }
+                    )
                 );
             }
 
             res.status(200).json({
                 message: 'Zapisano ustawienia trybu nocnego tabletów.',
                 nightMode,
-                emergencyAlert,
                 delivered,
                 connectedClients: getConnectedTabletCount(),
                 updatedDevices: activeDevices.length
@@ -393,56 +631,6 @@ export class DeviceListController {
             console.error('Error updating display settings:', error);
             res.status(500).json({
                 message: 'Nie udało się zapisać ustawień trybu nocnego tabletów.'
-            });
-        }
-    }
-
-    // PUT /api/devices/emergency-alert
-    static async updateEmergencyAlert(req: AuthRequest, res: Response) {
-        const parsed = parseEmergencyAlertSettingsPayload(req.body);
-
-        if (!parsed.settings) {
-            res.status(400).json({ message: parsed.error });
-            return;
-        }
-
-        try {
-            await ensureDeviceListDisplaySettingsColumns(prisma);
-            const emergencyAlert = await updateTabletEmergencyAlertSettings(
-                prisma,
-                parsed.settings,
-                req.user?.login ?? null
-            );
-            const nightMode = await getTabletNightModeSettings(prisma);
-            const activeDevices = await prisma.deviceList.findMany({
-                where: { status: 'ACTIVE' }
-            });
-
-            let delivered = 0;
-            for (const device of activeDevices) {
-                delivered += sendTabletCommandToDevice(
-                    device.deviceId,
-                    buildDeviceCommand(device, 'admin-emergency-alert-updated', nightMode, emergencyAlert, {
-                        fallbackType: 'config-updated',
-                        hardReload: false
-                    })
-                );
-            }
-
-            res.status(200).json({
-                message: emergencyAlert.enabled
-                    ? 'Włączono alarm ewakuacyjny tabletów.'
-                    : 'Wyłączono alarm ewakuacyjny tabletów.',
-                nightMode,
-                emergencyAlert,
-                delivered,
-                connectedClients: getConnectedTabletCount(),
-                updatedDevices: activeDevices.length
-            });
-        } catch (error) {
-            console.error('Error updating emergency alert settings:', error);
-            res.status(500).json({
-                message: 'Nie udało się zapisać ustawień alarmu ewakuacyjnego.'
             });
         }
     }
@@ -471,19 +659,29 @@ export class DeviceListController {
         });
 
         const nightMode = await getTabletNightModeSettings(prisma);
-        const emergencyAlert = await getTabletEmergencyAlertSettings(prisma);
+        const priorityMessages = await getPriorityMessagesForDeviceIds(prisma, [updatedDevice.id]);
         const delivered = sendTabletCommandToDevice(
             updatedDevice.deviceId,
-            buildDeviceCommand(updatedDevice, 'admin-device-display-settings-updated', nightMode, emergencyAlert, {
-                fallbackType: 'config-updated',
-                hardReload: false
-            })
+            buildDeviceCommand(
+                updatedDevice,
+                'admin-device-display-settings-updated',
+                nightMode,
+                priorityMessages.get(updatedDevice.id) ?? DEFAULT_TABLET_PRIORITY_MESSAGE,
+                {
+                    fallbackType: 'config-updated',
+                    hardReload: false
+                }
+            )
         );
 
         res.status(200).json({
             message: 'Zapisano ustawienia wyświetlania tabletu.',
             delivered,
-            device: await serializeDevice(updatedDevice, nightMode)
+            device: await serializeDevice(
+                updatedDevice,
+                nightMode,
+                priorityMessages.get(updatedDevice.id) ?? DEFAULT_TABLET_PRIORITY_MESSAGE
+            )
         });
     }
 
@@ -516,16 +714,25 @@ export class DeviceListController {
         });
 
         const nightMode = await getTabletNightModeSettings(prisma);
-        const emergencyAlert = await getTabletEmergencyAlertSettings(prisma);
+        const priorityMessages = await getPriorityMessagesForDeviceIds(
+            prisma,
+            updatedDevices.map((device) => device.id)
+        );
         let delivered = 0;
 
         for (const device of updatedDevices) {
             delivered += sendTabletCommandToDevice(
                 device.deviceId,
-                buildDeviceCommand(device, 'admin-batch-device-display-settings-updated', nightMode, emergencyAlert, {
-                    fallbackType: 'config-updated',
-                    hardReload: false
-                })
+                buildDeviceCommand(
+                    device,
+                    'admin-batch-device-display-settings-updated',
+                    nightMode,
+                    priorityMessages.get(device.id) ?? DEFAULT_TABLET_PRIORITY_MESSAGE,
+                    {
+                        fallbackType: 'config-updated',
+                        hardReload: false
+                    }
+                )
             );
         }
 
@@ -534,7 +741,13 @@ export class DeviceListController {
             delivered,
             updatedCount: updatedDevices.length,
             devices: await Promise.all(
-                updatedDevices.map((device) => serializeDevice(device, nightMode))
+                updatedDevices.map((device) =>
+                    serializeDevice(
+                        device,
+                        nightMode,
+                        priorityMessages.get(device.id) ?? DEFAULT_TABLET_PRIORITY_MESSAGE
+                    )
+                )
             )
         });
     }
@@ -607,14 +820,20 @@ export class DeviceListController {
                     ? 'device-activated'
                     : 'device-config-updated';
                 const nightMode = await getTabletNightModeSettings(prisma);
-                const emergencyAlert = await getTabletEmergencyAlertSettings(prisma);
+                const priorityMessages = await getPriorityMessagesForDeviceIds(prisma, [updatedDevice.id]);
 
                 sendTabletCommandToDevice(
                     updatedDevice.deviceId,
-                    buildDeviceCommand(updatedDevice, reason, nightMode, emergencyAlert, {
-                        fallbackType: 'config-updated',
-                        hardReload: true
-                    })
+                    buildDeviceCommand(
+                        updatedDevice,
+                        reason,
+                        nightMode,
+                        priorityMessages.get(updatedDevice.id) ?? DEFAULT_TABLET_PRIORITY_MESSAGE,
+                        {
+                            fallbackType: 'config-updated',
+                            hardReload: true
+                        }
+                    )
                 );
             }
 
@@ -642,7 +861,6 @@ export class DeviceListController {
 
             await prisma.deviceList.delete({ where: { id } });
             const nightMode = await getTabletNightModeSettings(prisma);
-            const emergencyAlert = await getTabletEmergencyAlertSettings(prisma);
             sendTabletCommandToDevice(
                 current.deviceId,
                 {
@@ -658,7 +876,7 @@ export class DeviceListController {
                         nightMode,
                         displayTheme: DEFAULT_DEVICE_DISPLAY_SETTINGS.displayTheme,
                         blackScreenMode: DEFAULT_DEVICE_DISPLAY_SETTINGS.blackScreenMode,
-                        emergencyAlert
+                        priorityMessage: DEFAULT_TABLET_PRIORITY_MESSAGE
                     }
                 }
             );
@@ -677,17 +895,26 @@ export class DeviceListController {
             ? req.body.reason
             : 'admin-broadcast-reload';
         const nightMode = await getTabletNightModeSettings(prisma);
-        const emergencyAlert = await getTabletEmergencyAlertSettings(prisma);
         const devices = await prisma.deviceList.findMany();
+        const priorityMessages = await getPriorityMessagesForDeviceIds(
+            prisma,
+            devices.map((device) => device.id)
+        );
 
         let delivered = 0;
         for (const device of devices) {
             delivered += sendTabletCommandToDevice(
                 device.deviceId,
-                buildDeviceCommand(device, reason, nightMode, emergencyAlert, {
-                    fallbackType: 'reload',
-                    hardReload: true
-                })
+                buildDeviceCommand(
+                    device,
+                    reason,
+                    nightMode,
+                    priorityMessages.get(device.id) ?? DEFAULT_TABLET_PRIORITY_MESSAGE,
+                    {
+                        fallbackType: 'reload',
+                        hardReload: true
+                    }
+                )
             );
         }
 
@@ -714,14 +941,20 @@ export class DeviceListController {
             ? req.body.reason
             : 'admin-device-reload';
         const nightMode = await getTabletNightModeSettings(prisma);
-        const emergencyAlert = await getTabletEmergencyAlertSettings(prisma);
+        const priorityMessages = await getPriorityMessagesForDeviceIds(prisma, [device.id]);
 
         const delivered = sendTabletCommandToDevice(
             device.deviceId,
-            buildDeviceCommand(device, reason, nightMode, emergencyAlert, {
-                fallbackType: 'reload',
-                hardReload: true
-            })
+            buildDeviceCommand(
+                device,
+                reason,
+                nightMode,
+                priorityMessages.get(device.id) ?? DEFAULT_TABLET_PRIORITY_MESSAGE,
+                {
+                    fallbackType: 'reload',
+                    hardReload: true
+                }
+            )
         );
 
         res.status(200).json({

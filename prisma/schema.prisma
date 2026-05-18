@@ -56,6 +56,7 @@ model DeviceList {
   devicePixelRatio Float?
   screenOrientation String?
   displayProfileReportedAt DateTime?
+  priorityMessageAssignment TabletPriorityMessageAssignment?
 }
 
 model TabletDisplaySettings {
@@ -64,16 +65,37 @@ model TabletDisplaySettings {
   nightModeStart   String   @default("22:00") @map("night_mode_start")
   nightModeEnd     String   @default("06:00") @map("night_mode_end")
   blackScreenAfterScheduleEnd Boolean @default(false) @map("black_screen_after_schedule_end")
-  emergencyAlertEnabled Boolean @default(false) @map("emergency_alert_enabled")
-  emergencyAlertAudioEnabled Boolean @default(true) @map("emergency_alert_audio_enabled")
-  emergencyAlertMessagePl String @default("EWAKUACJA. Opuść budynek najbliższym bezpiecznym wyjściem ewakuacyjnym. Nie korzystaj z wind. Wykonuj polecenia obsługi.") @map("emergency_alert_message_pl")
-  emergencyAlertMessageEn String @default("EVACUATION. Leave the building using the nearest safe emergency exit. Do not use elevators. Follow staff instructions.") @map("emergency_alert_message_en")
-  emergencyAlertUpdatedAt DateTime? @map("emergency_alert_updated_at") @db.Timestamptz(6)
-  emergencyAlertUpdatedBy String? @map("emergency_alert_updated_by")
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
   @@map("tablet_display_settings")
+}
+
+model TabletPriorityMessageTemplate {
+  id        String   @id @db.VarChar(80)
+  name      String
+  imageUrl  String   @map("image_url")
+  mediaType String   @default("image") @map("media_type") @db.VarChar(16)
+  isBuiltin Boolean  @default(false) @map("is_builtin")
+  sortOrder Int      @default(100) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assignments TabletPriorityMessageAssignment[]
+
+  @@map("tablet_priority_message_templates")
+}
+
+model TabletPriorityMessageAssignment {
+  deviceId   Int      @id @map("device_id")
+  templateId String   @map("template_id") @db.VarChar(80)
+  active     Boolean  @default(true)
+  updatedAt  DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy  String?  @map("updated_by")
+  device     DeviceList @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  template   TabletPriorityMessageTemplate @relation(fields: [templateId], references: [id])
+
+  @@index([active], map: "idx_tablet_priority_message_assignments_active")
+  @@map("tablet_priority_message_assignments")
 }
 
 model LdapUser {
