@@ -44,6 +44,7 @@ model DeviceList {
   deviceId        String   @unique // The Client UUID
   status          String   @default("PENDING") // PENDING, ACTIVE
   lastSeen        DateTime @default(now())
+  lastIpAddress   String?
   displayTheme    String   @default("dark")
   blackScreenMode String   @default("follow")
 
@@ -57,6 +58,17 @@ model DeviceList {
   screenOrientation String?
   displayProfileReportedAt DateTime?
   priorityMessageAssignment TabletPriorityMessageAssignment?
+}
+
+model TabletIpBan {
+  id        Int      @id @default(autoincrement())
+  ipAddress String   @unique @map("ip_address")
+  deviceId  String?  @map("device_id")
+  reason    String?
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+
+  @@map("tablet_ip_bans")
 }
 
 model TabletDisplaySettings {

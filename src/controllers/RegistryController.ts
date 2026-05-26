@@ -16,6 +16,10 @@ import {
 } from '../services/tabletPriorityMessageService';
 import { generateDeviceSecret } from '../services/deviceSecretService';
 import { getRequestClientIp } from '../middlewares/securityMiddleware';
+import {
+    ensureTabletIpBanStorage,
+    isTabletIpBanned
+} from '../services/tabletIpBanService';
 
 const prisma = new PrismaClient();
 const MAX_REASONABLE_DIMENSION_PX = 20000;
@@ -137,22 +141,33 @@ export class RegistryController {
     // GET /api/registry/stream/{deviceId}
     static async stream(req: Request, res: Response) {
         const deviceId = normalizeDeviceId(req.params.deviceId);
+        const clientIp = getRequestClientIp(req);
 
         if (!isValidDeviceId(deviceId)) {
             return res.status(400).json({ message: "DeviceId must be a 6-digit code" });
         }
 
-        registerTabletStream(deviceId, getRequestClientIp(req), res);
+        if (await isTabletIpBanned(prisma, clientIp)) {
+            return res.status(403).json({ message: 'Tablet IP is banned.' });
+        }
+
+        registerTabletStream(deviceId, clientIp, res);
         return;
     }
 
     // POST /api/registry/handshake
     static async handshake(req: Request, res: Response) {
         await ensureDeviceListDisplaySettingsColumns(prisma);
+        await ensureTabletIpBanStorage(prisma);
+        const clientIp = getRequestClientIp(req);
         const deviceId = normalizeDeviceId(req.body?.deviceId);
 
         if (!isValidDeviceId(deviceId)) {
             return res.status(400).json({ message: "DeviceId must be a 6-digit code" });
+        }
+
+        if (await isTabletIpBanned(prisma, clientIp)) {
+            return res.status(403).json({ message: 'Tablet IP is banned.' });
         }
 
         let device = await prisma.deviceList.findUnique({
@@ -179,6 +194,7 @@ export class RegistryController {
                     status: 'PENDING',
                     deviceClassroom: null,
                     deviceURL: generateDeviceSecret(),
+                    lastIpAddress: clientIp,
                     lastSeen: new Date()
                 }
             });
@@ -186,6 +202,7 @@ export class RegistryController {
             device = await prisma.deviceList.update({
                 where: { deviceId },
                 data: {
+                    lastIpAddress: clientIp,
                     lastSeen: new Date(),
                     ...(device.deviceURL ? {} : { deviceURL: generateDeviceSecret() })
                 }
@@ -208,10 +225,16 @@ export class RegistryController {
     // POST /api/registry/display-profile
     static async updateDisplayProfile(req: Request, res: Response) {
         await ensureDeviceListDisplaySettingsColumns(prisma);
+        await ensureTabletIpBanStorage(prisma);
+        const clientIp = getRequestClientIp(req);
         const deviceId = normalizeDeviceId(req.body?.deviceId);
 
         if (!isValidDeviceId(deviceId)) {
             return res.status(400).json({ message: 'DeviceId must be a 6-digit code' });
+        }
+
+        if (await isTabletIpBanned(prisma, clientIp)) {
+            return res.status(403).json({ message: 'Tablet IP is banned.' });
         }
 
         const parsed = parseDisplayProfilePayload(req.body);
@@ -232,6 +255,7 @@ export class RegistryController {
             data: {
                 ...parsed.profile,
                 displayProfileReportedAt: new Date(),
+                lastIpAddress: clientIp,
                 lastSeen: new Date()
             }
         });
@@ -246,10 +270,16 @@ export class RegistryController {
     // GET /api/registry/status/:deviceId
     static async checkStatus(req: Request, res: Response) {
         await ensureDeviceListDisplaySettingsColumns(prisma);
+        await ensureTabletIpBanStorage(prisma);
+        const clientIp = getRequestClientIp(req);
         const deviceId = normalizeDeviceId(req.params.deviceId);
 
         if (!isValidDeviceId(deviceId)) {
             return res.status(400).json({ message: 'DeviceId must be a 6-digit code' });
+        }
+
+        if (await isTabletIpBanned(prisma, clientIp)) {
+            return res.status(403).json({ message: 'Tablet IP is banned.' });
         }
 
         const device = await prisma.deviceList.findUnique({
@@ -259,7 +289,10 @@ export class RegistryController {
         if (device) {
             await prisma.deviceList.update({
                 where: { deviceId },
-                data: { lastSeen: new Date() }
+                data: {
+                    lastIpAddress: clientIp,
+                    lastSeen: new Date()
+                }
             });
         }
 
