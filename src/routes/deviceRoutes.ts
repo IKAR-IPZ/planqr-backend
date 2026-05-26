@@ -46,6 +46,7 @@ router.post('/priority-messages/activate', DeviceListController.activatePriority
 router.post('/priority-messages/clear', DeviceListController.clearPriorityMessage);
 router.patch('/display-settings/batch', DeviceListController.batchUpdateDeviceDisplaySettings);
 router.post('/reload-all', DeviceListController.reloadAllTablets);
+router.post('/:id/ban-ip', DeviceListController.banDeviceIp);
 router.post('/:id/request-display-profile', DeviceListController.requestDisplayProfile);
 router.post('/:id/reload', DeviceListController.reloadDevice);
 router.patch('/:id/display-settings', DeviceListController.updateDeviceDisplaySettings);

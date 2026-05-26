@@ -36,6 +36,11 @@ import {
 import { generateDeviceSecret } from '../services/deviceSecretService';
 import { getDeviceConnectionStatus } from '../services/deviceStatusService';
 import { resolveEffectiveBlackScreen } from '../services/tabletBlackScreenService';
+import {
+    banTabletIpAddress,
+    ensureTabletIpBanStorage,
+    normalizeTabletIpAddress
+} from '../services/tabletIpBanService';
 
 const prisma = new PrismaClient();
 const NIGHT_MODE_TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -337,6 +342,7 @@ export class DeviceListController {
     // GET /api/devices
     static async getDevices(req: Request, res: Response) {
         await ensureDeviceListDisplaySettingsColumns(prisma);
+        await ensureTabletIpBanStorage(prisma);
         await ensurePriorityMessageTables(prisma);
         const devices = await prisma.deviceList.findMany();
         const nightMode = await getTabletNightModeSettings(prisma);
@@ -356,6 +362,7 @@ export class DeviceListController {
     // GET /api/devices/{id}
     static async getDevice(req: Request, res: Response) {
         await ensureDeviceListDisplaySettingsColumns(prisma);
+        await ensureTabletIpBanStorage(prisma);
         const id = parseInt(req.params.id);
         const device = await prisma.deviceList.findUnique({ where: { id } });
         if (!device) {
@@ -374,6 +381,7 @@ export class DeviceListController {
     // GET /api/devices/pending/by-code?deviceId=123456
     static async getPendingDeviceByCode(req: Request, res: Response) {
         await ensureDeviceListDisplaySettingsColumns(prisma);
+        await ensureTabletIpBanStorage(prisma);
         const deviceId = normalizePendingDeviceCode(req.query.deviceId);
 
         if (!PENDING_DEVICE_CODE_PATTERN.test(deviceId)) {
@@ -851,6 +859,7 @@ export class DeviceListController {
     // DELETE /api/devices/{id}
     static async deleteDevice(req: Request, res: Response) {
         await ensureDeviceListDisplaySettingsColumns(prisma);
+        await ensureTabletIpBanStorage(prisma);
         const id = parseInt(req.params.id);
         try {
             const current = await prisma.deviceList.findUnique({ where: { id } });
@@ -885,6 +894,67 @@ export class DeviceListController {
             // Handle error if device doesn't exist
             res.sendStatus(404);
             return;
+        }
+    }
+
+    // POST /api/devices/{id}/ban-ip
+    static async banDeviceIp(req: AuthRequest, res: Response) {
+        await ensureDeviceListDisplaySettingsColumns(prisma);
+        await ensureTabletIpBanStorage(prisma);
+        const id = parseInt(req.params.id);
+
+        const device = await prisma.deviceList.findUnique({ where: { id } });
+        if (!device) {
+            res.sendStatus(404);
+            return;
+        }
+
+        const ipAddress = normalizeTabletIpAddress(device.lastIpAddress);
+        if (!ipAddress || ipAddress === 'unknown') {
+            res.status(400).json({
+                message: 'Tablet nie ma zapisanego poprawnego adresu IP.'
+            });
+            return;
+        }
+
+        try {
+            const ban = await banTabletIpAddress(prisma, {
+                ipAddress,
+                deviceId: device.deviceId,
+                reason: typeof req.body?.reason === 'string' ? req.body.reason : null,
+                createdBy: req.user?.login ?? null
+            });
+
+            await prisma.deviceList.delete({ where: { id } });
+            const nightMode = await getTabletNightModeSettings(prisma);
+            sendTabletCommandToDevice(device.deviceId, {
+                type: 'registry-reset',
+                issuedAt: new Date().toISOString(),
+                hardReload: true,
+                reason: 'device-ip-banned',
+                path: '/registry',
+                config: {
+                    status: 'PENDING',
+                    room: null,
+                    secretUrl: null,
+                    nightMode,
+                    displayTheme: DEFAULT_DEVICE_DISPLAY_SETTINGS.displayTheme,
+                    blackScreenMode: DEFAULT_DEVICE_DISPLAY_SETTINGS.blackScreenMode,
+                    priorityMessage: DEFAULT_TABLET_PRIORITY_MESSAGE
+                }
+            });
+
+            res.status(200).json({
+                message: 'Zbanowano IP tabletu i usunięto go z kolejki.',
+                ban,
+                deviceId: device.deviceId,
+                ipAddress
+            });
+        } catch (error) {
+            console.error('Error banning tablet IP:', error);
+            res.status(500).json({
+                message: 'Nie udało się zbanować IP tabletu.'
+            });
         }
     }
 
