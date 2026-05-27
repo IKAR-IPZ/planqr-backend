@@ -26,6 +26,7 @@ const MAX_REASONABLE_DIMENSION_PX = 20000;
 const MAX_REASONABLE_DEVICE_PIXEL_RATIO = 20;
 const DEVICE_ID_PATTERN = /^\d{6}$/;
 const MAX_PENDING_DEVICES = 200;
+const loggedPriorityStateByDeviceId = new Map<string, string>();
 
 interface DisplayProfilePayload {
     viewportWidthPx: number;
@@ -58,6 +59,51 @@ const normalizeDeviceId = (value: unknown) =>
     typeof value === 'string' ? value.trim() : '';
 
 const isValidDeviceId = (value: string) => DEVICE_ID_PATTERN.test(value);
+
+const preventRegistryConfigCaching = (res: Response) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+};
+
+const formatPriorityUpdatedAt = (priorityMessage: TabletPriorityMessage) => {
+    const updatedAt = priorityMessage.updatedAt;
+    if (!updatedAt) {
+        return 'none';
+    }
+
+    return updatedAt instanceof Date ? updatedAt.toISOString() : String(updatedAt);
+};
+
+const logPriorityStateChange = (
+    device: DeviceList,
+    priorityMessage: TabletPriorityMessage,
+    clientIp: string
+) => {
+    const template = priorityMessage.template;
+    const signature = [
+        priorityMessage.enabled ? 'enabled' : 'disabled',
+        template?.id ?? 'none',
+        formatPriorityUpdatedAt(priorityMessage)
+    ].join(':');
+    const previousSignature = loggedPriorityStateByDeviceId.get(device.deviceId);
+
+    if (previousSignature === signature) {
+        return;
+    }
+
+    if (!priorityMessage.enabled && !previousSignature) {
+        return;
+    }
+
+    loggedPriorityStateByDeviceId.set(device.deviceId, signature);
+    console.info(
+        `[Registry] Tablet priority state changed: deviceId=${device.deviceId} ` +
+        `room=${device.deviceClassroom ?? 'unassigned'} enabled=${priorityMessage.enabled} ` +
+        `template=${template?.id ?? 'none'} imageUrl=${template?.imageUrl ?? 'none'} ` +
+        `updatedAt=${formatPriorityUpdatedAt(priorityMessage)} ip=${clientIp}`
+    );
+};
 
 const parsePositiveInteger = (value: unknown) => {
     if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -157,6 +203,7 @@ export class RegistryController {
 
     // POST /api/registry/handshake
     static async handshake(req: Request, res: Response) {
+        preventRegistryConfigCaching(res);
         await ensureDeviceListDisplaySettingsColumns(prisma);
         await ensureTabletIpBanStorage(prisma);
         const clientIp = getRequestClientIp(req);
@@ -269,6 +316,7 @@ export class RegistryController {
 
     // GET /api/registry/status/:deviceId
     static async checkStatus(req: Request, res: Response) {
+        preventRegistryConfigCaching(res);
         await ensureDeviceListDisplaySettingsColumns(prisma);
         await ensureTabletIpBanStorage(prisma);
         const clientIp = getRequestClientIp(req);
@@ -305,6 +353,7 @@ export class RegistryController {
             device.status === 'ACTIVE'
                 ? await loadPriorityMessage(device.id)
                 : DEFAULT_TABLET_PRIORITY_MESSAGE;
+        logPriorityStateChange(device, priorityMessage, clientIp);
 
         return res.json({
             status: device.status,

@@ -503,12 +503,17 @@ export class DeviceListController {
                         nightMode,
                         priorityMessages.get(device.id) ?? DEFAULT_TABLET_PRIORITY_MESSAGE,
                         {
-                            fallbackType: 'config-updated',
-                            hardReload: false
+                            fallbackType: 'reload',
+                            hardReload: true
                         }
                     )
                 );
             }
+            console.info(
+                `[PriorityMessage] Activated: templateId=${parsed.templateId} ` +
+                `requested=${parsed.deviceIds.length} updated=${updatedDevices.length} ` +
+                `delivered=${delivered} deviceIds=${updatedDevices.map((device) => device.deviceId).join(',')}`
+            );
 
             res.status(200).json({
                 message: 'Włączono komunikat priorytetowy na wybranych tabletach.',
@@ -566,12 +571,17 @@ export class DeviceListController {
                         nightMode,
                         DEFAULT_TABLET_PRIORITY_MESSAGE,
                         {
-                            fallbackType: 'config-updated',
-                            hardReload: false
+                            fallbackType: 'reload',
+                            hardReload: true
                         }
                     )
                 );
             }
+            console.info(
+                `[PriorityMessage] Cleared: requested=${parsed.deviceIds.length} ` +
+                `updated=${updatedDevices.length} delivered=${delivered} ` +
+                `deviceIds=${updatedDevices.map((device) => device.deviceId).join(',')}`
+            );
 
             res.status(200).json({
                 message: 'Wyłączono komunikat priorytetowy na wybranych tabletach.',
