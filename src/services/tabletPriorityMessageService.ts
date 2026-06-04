@@ -211,6 +211,112 @@ export const createPriorityMessageTemplate = async (
     return mapTemplateRow(rows[0]);
 };
 
+export const updatePriorityMessageTemplate = async (
+    prisma: PrismaClient,
+    templateId: string,
+    input: {
+        name: string;
+        imageUrl: string;
+        mediaType?: PriorityMessageMediaType;
+    }
+): Promise<PriorityMessageTemplate | null> => {
+    await ensurePriorityMessageTables(prisma);
+
+    const mediaType = input.mediaType ?? inferPriorityMessageMediaType(input.imageUrl);
+    const rows = await prisma.$queryRawUnsafe<PriorityMessageTemplateRow[]>(
+        `
+            UPDATE ${PRIORITY_MESSAGE_TEMPLATES_TABLE}
+            SET name = $2,
+                image_url = $3,
+                media_type = $4,
+                updated_at = NOW()
+            WHERE id = $1
+              AND is_builtin = FALSE
+            RETURNING id, name, image_url, media_type, is_builtin, created_at, updated_at
+        `,
+        templateId,
+        input.name,
+        input.imageUrl,
+        mediaType
+    );
+
+    return rows[0] ? mapTemplateRow(rows[0]) : null;
+};
+
+export const deletePriorityMessageTemplate = async (
+    prisma: PrismaClient,
+    templateId: string
+): Promise<{ deleted: boolean; deactivatedDeviceIds: number[] }> => {
+    await ensurePriorityMessageTables(prisma);
+
+    return prisma.$transaction(async (transaction) => {
+        const templateRows = await transaction.$queryRawUnsafe<Array<{ id: string }>>(
+            `
+                SELECT id
+                FROM ${PRIORITY_MESSAGE_TEMPLATES_TABLE}
+                WHERE id = $1
+                  AND is_builtin = FALSE
+            `,
+            templateId
+        );
+
+        if (templateRows.length === 0) {
+            return { deleted: false, deactivatedDeviceIds: [] };
+        }
+
+        const deactivatedRows = await transaction.$queryRawUnsafe<Array<{ device_id: number }>>(
+            `
+                DELETE FROM ${PRIORITY_MESSAGE_ASSIGNMENTS_TABLE}
+                WHERE template_id = $1
+                  AND active = TRUE
+                RETURNING device_id
+            `,
+            templateId
+        );
+
+        await transaction.$executeRawUnsafe(
+            `
+                DELETE FROM ${PRIORITY_MESSAGE_ASSIGNMENTS_TABLE}
+                WHERE template_id = $1
+            `,
+            templateId
+        );
+
+        await transaction.$executeRawUnsafe(
+            `
+                DELETE FROM ${PRIORITY_MESSAGE_TEMPLATES_TABLE}
+                WHERE id = $1
+                  AND is_builtin = FALSE
+            `,
+            templateId
+        );
+
+        return {
+            deleted: true,
+            deactivatedDeviceIds: deactivatedRows.map((row) => row.device_id)
+        };
+    });
+};
+
+export const getActivePriorityMessageDeviceIdsForTemplate = async (
+    prisma: PrismaClient,
+    templateId: string
+): Promise<number[]> => {
+    await ensurePriorityMessageTables(prisma);
+
+    const rows = await prisma.$queryRawUnsafe<Array<{ device_id: number }>>(
+        `
+            SELECT device_id
+            FROM ${PRIORITY_MESSAGE_ASSIGNMENTS_TABLE}
+            WHERE template_id = $1
+              AND active = TRUE
+        `,
+        templateId
+    );
+
+    return rows.map((row) => row.device_id);
+};
+
 export const getPriorityMessagesForDeviceIds = async (
     prisma: PrismaClient,
     deviceIds: number[]

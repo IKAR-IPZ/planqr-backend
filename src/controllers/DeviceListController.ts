@@ -1,5 +1,8 @@
 import { Request, Response } from 'express';
 import { DeviceList, PrismaClient } from '@prisma/client';
+import crypto from 'crypto';
+import fs from 'fs/promises';
+import path from 'path';
 import { AuthRequest } from '../middlewares/authMiddleware';
 import {
     buildTabletPath,
@@ -26,12 +29,15 @@ import {
     clearPriorityMessageForDevices,
     createPriorityMessageTemplate as createPriorityMessageTemplateRecord,
     DEFAULT_TABLET_PRIORITY_MESSAGE,
+    deletePriorityMessageTemplate as deletePriorityMessageTemplateRecord,
     ensurePriorityMessageTables,
+    getActivePriorityMessageDeviceIdsForTemplate,
     getPriorityMessagesForDeviceIds,
     inferPriorityMessageMediaType,
     listPriorityMessageTemplates,
     PriorityMessageMediaType,
-    TabletPriorityMessage
+    TabletPriorityMessage,
+    updatePriorityMessageTemplate as updatePriorityMessageTemplateRecord
 } from '../services/tabletPriorityMessageService';
 import { generateDeviceSecret } from '../services/deviceSecretService';
 import { getDeviceConnectionStatus } from '../services/deviceStatusService';
@@ -45,6 +51,15 @@ import {
 const prisma = new PrismaClient();
 const NIGHT_MODE_TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
 const PENDING_DEVICE_CODE_PATTERN = /^\d{6}$/;
+const PRIORITY_MESSAGE_UPLOAD_DIR = path.resolve(process.cwd(), 'uploads', 'priority-messages');
+const PRIORITY_MESSAGE_UPLOAD_URL_PREFIX = '/priority-message-uploads';
+const PRIORITY_MESSAGE_UPLOAD_MAX_BYTES = 8 * 1024 * 1024;
+const ALLOWED_PRIORITY_MESSAGE_MIME_TYPES = new Set([
+    'image/gif',
+    'image/jpeg',
+    'image/png',
+    'image/webp'
+]);
 
 const toTabletConfig = (
     device: DeviceList,
@@ -172,6 +187,84 @@ const parsePriorityMessageTemplatePayload = (
             name,
             imageUrl,
             mediaType
+        }
+    };
+};
+
+const sanitizePriorityMessageFileName = (value: unknown) => {
+    const rawName = typeof value === 'string' ? value : 'komunikat';
+    const parsedName = path.parse(rawName);
+    const baseName = normalizePriorityMessageName(parsedName.name)
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 64) || 'komunikat';
+    const extension = parsedName.ext.toLowerCase();
+
+    return { baseName, extension };
+};
+
+const getPriorityMessageUploadExtension = (mimeType: string, fileName: unknown) => {
+    const { baseName, extension } = sanitizePriorityMessageFileName(fileName);
+    const allowedExtension =
+        mimeType === 'image/gif'
+            ? '.gif'
+            : mimeType === 'image/jpeg'
+                ? '.jpg'
+                : mimeType === 'image/png'
+                    ? '.png'
+                    : mimeType === 'image/webp'
+                        ? '.webp'
+                        : '';
+
+    if (!allowedExtension) {
+        return { baseName, extension: '' };
+    }
+
+    if (
+        (allowedExtension === '.jpg' && (extension === '.jpg' || extension === '.jpeg')) ||
+        extension === allowedExtension
+    ) {
+        return { baseName, extension };
+    }
+
+    return { baseName, extension: allowedExtension };
+};
+
+const parsePriorityMessageUploadPayload = (
+    body: Request['body']
+): { upload?: { fileName: string; buffer: Buffer; mediaType: PriorityMessageMediaType }; error?: string } => {
+    const mimeType = typeof body?.mimeType === 'string' ? body.mimeType.trim().toLowerCase() : '';
+    const contentBase64 =
+        typeof body?.contentBase64 === 'string'
+            ? body.contentBase64.replace(/^data:[^;]+;base64,/, '')
+            : '';
+
+    if (!ALLOWED_PRIORITY_MESSAGE_MIME_TYPES.has(mimeType)) {
+        return { error: 'Dozwolone formaty pliku: GIF, JPG, PNG albo WebP.' };
+    }
+
+    if (!contentBase64) {
+        return { error: 'Brak danych pliku.' };
+    }
+
+    const { baseName, extension } = getPriorityMessageUploadExtension(mimeType, body?.fileName);
+    if (!extension) {
+        return { error: 'Nieobsługiwany format pliku.' };
+    }
+
+    const buffer = Buffer.from(contentBase64, 'base64');
+    if (buffer.length === 0 || buffer.length > PRIORITY_MESSAGE_UPLOAD_MAX_BYTES) {
+        return { error: 'Plik musi mieć od 1 B do 8 MB.' };
+    }
+
+    return {
+        upload: {
+            fileName: `${baseName}-${crypto.randomBytes(5).toString('hex')}${extension}`,
+            buffer,
+            mediaType: mimeType === 'image/gif' ? 'gif' : 'image'
         }
     };
 };
@@ -337,6 +430,50 @@ const buildDisplayProfileRequestCommand = (reason: string): TabletCommand => ({
     reason
 });
 
+const notifyPriorityMessageDevices = async (
+    deviceIds: number[],
+    reason: string,
+    fallbackPriorityMessage?: TabletPriorityMessage
+) => {
+    const nightMode = await getTabletNightModeSettings(prisma);
+
+    if (deviceIds.length === 0) {
+        return { delivered: 0, devices: [] as DeviceList[], nightMode };
+    }
+
+    const devices = await prisma.deviceList.findMany({
+        where: {
+            id: {
+                in: deviceIds
+            }
+        }
+    });
+    const priorityMessages = fallbackPriorityMessage
+        ? new Map<number, TabletPriorityMessage>()
+        : await getPriorityMessagesForDeviceIds(prisma, deviceIds);
+
+    let delivered = 0;
+    for (const device of devices) {
+        delivered += sendTabletCommandToDevice(
+            device.deviceId,
+            buildDeviceCommand(
+                device,
+                reason,
+                nightMode,
+                fallbackPriorityMessage ??
+                    priorityMessages.get(device.id) ??
+                    DEFAULT_TABLET_PRIORITY_MESSAGE,
+                {
+                    fallbackType: 'reload',
+                    hardReload: true
+                }
+            )
+        );
+    }
+
+    return { delivered, devices, nightMode };
+};
+
 export class DeviceListController {
 
     // GET /api/devices
@@ -457,6 +594,139 @@ export class DeviceListController {
             console.error('Error creating priority message template:', error);
             res.status(500).json({
                 message: 'Nie udało się dodać komunikatu priorytetowego.'
+            });
+        }
+    }
+
+    // POST /api/devices/priority-messages/upload
+    static async uploadPriorityMessageMedia(req: AuthRequest, res: Response) {
+        const parsed = parsePriorityMessageUploadPayload(req.body);
+
+        if (!parsed.upload) {
+            res.status(400).json({ message: parsed.error });
+            return;
+        }
+
+        try {
+            await fs.mkdir(PRIORITY_MESSAGE_UPLOAD_DIR, { recursive: true });
+            const targetPath = path.join(PRIORITY_MESSAGE_UPLOAD_DIR, parsed.upload.fileName);
+            await fs.writeFile(targetPath, parsed.upload.buffer, { flag: 'wx' });
+
+            res.status(201).json({
+                imageUrl: `${PRIORITY_MESSAGE_UPLOAD_URL_PREFIX}/${parsed.upload.fileName}`,
+                mediaType: parsed.upload.mediaType
+            });
+        } catch (error) {
+            console.error('Error uploading priority message media:', error);
+            res.status(500).json({
+                message: 'Nie udało się wgrać pliku komunikatu priorytetowego.'
+            });
+        }
+    }
+
+    // PATCH /api/devices/priority-messages/templates/:templateId
+    static async updatePriorityMessageTemplate(req: AuthRequest, res: Response) {
+        const templateId = typeof req.params.templateId === 'string' ? req.params.templateId.trim() : '';
+        const parsed = parsePriorityMessageTemplatePayload(req.body);
+
+        if (!templateId || templateId.length > 80) {
+            res.status(400).json({ message: 'Nieprawidłowy identyfikator komunikatu.' });
+            return;
+        }
+
+        if (!parsed.template) {
+            res.status(400).json({ message: parsed.error });
+            return;
+        }
+
+        try {
+            const activeDeviceIds = await getActivePriorityMessageDeviceIdsForTemplate(
+                prisma,
+                templateId
+            );
+            const template = await updatePriorityMessageTemplateRecord(
+                prisma,
+                templateId,
+                parsed.template
+            );
+
+            if (!template) {
+                res.status(404).json({
+                    message: 'Nie znaleziono edytowalnego komunikatu priorytetowego.'
+                });
+                return;
+            }
+
+            const { delivered, devices, nightMode } = await notifyPriorityMessageDevices(
+                activeDeviceIds,
+                'admin-priority-message-template-updated'
+            );
+            const priorityMessages = await getPriorityMessagesForDeviceIds(prisma, activeDeviceIds);
+            const templates = await listPriorityMessageTemplates(prisma);
+
+            res.status(200).json({
+                message: 'Zapisano komunikat priorytetowy.',
+                template,
+                templates,
+                delivered,
+                devices: await Promise.all(
+                    devices.map((device) =>
+                        serializeDevice(
+                            device,
+                            nightMode,
+                            priorityMessages.get(device.id) ?? DEFAULT_TABLET_PRIORITY_MESSAGE
+                        )
+                    )
+                )
+            });
+        } catch (error) {
+            console.error('Error updating priority message template:', error);
+            res.status(500).json({
+                message: 'Nie udało się zapisać komunikatu priorytetowego.'
+            });
+        }
+    }
+
+    // DELETE /api/devices/priority-messages/templates/:templateId
+    static async deletePriorityMessageTemplate(req: AuthRequest, res: Response) {
+        const templateId = typeof req.params.templateId === 'string' ? req.params.templateId.trim() : '';
+
+        if (!templateId || templateId.length > 80) {
+            res.status(400).json({ message: 'Nieprawidłowy identyfikator komunikatu.' });
+            return;
+        }
+
+        try {
+            const result = await deletePriorityMessageTemplateRecord(prisma, templateId);
+
+            if (!result.deleted) {
+                res.status(404).json({
+                    message: 'Nie znaleziono edytowalnego komunikatu priorytetowego.'
+                });
+                return;
+            }
+
+            const { delivered, devices, nightMode } = await notifyPriorityMessageDevices(
+                result.deactivatedDeviceIds,
+                'admin-priority-message-template-deleted',
+                DEFAULT_TABLET_PRIORITY_MESSAGE
+            );
+            const templates = await listPriorityMessageTemplates(prisma);
+
+            res.status(200).json({
+                message: 'Usunięto komunikat priorytetowy.',
+                templates,
+                delivered,
+                devices: await Promise.all(
+                    devices.map((device) =>
+                        serializeDevice(device, nightMode, DEFAULT_TABLET_PRIORITY_MESSAGE)
+                    )
+                )
+            });
+        } catch (error) {
+            console.error('Error deleting priority message template:', error);
+            res.status(500).json({
+                message: 'Nie udało się usunąć komunikatu priorytetowego.'
             });
         }
     }

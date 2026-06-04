@@ -27,6 +27,7 @@ const cleanupPrisma = new PrismaClient();
 let cleanupInProgress = false;
 const PENDING_DEVICE_STALE_AFTER_MS = 30 * 60 * 1000;
 const PENDING_DEVICE_CLEANUP_INTERVAL_MS = 10 * 1000;
+const PRIORITY_MESSAGE_UPLOAD_DIR = path.resolve(process.cwd(), 'uploads', 'priority-messages');
 
 app.disable('x-powered-by');
 
@@ -35,8 +36,10 @@ app.use(cors({
     credentials: true // Important for cookies!
 }));
 app.use(applyBasicSecurityHeaders);
+app.use('/api/devices/priority-messages/upload', express.json({ limit: '12mb' }));
 app.use(express.json({ limit: '32kb' }));
 app.use(cookieParser());
+app.use('/priority-message-uploads', express.static(PRIORITY_MESSAGE_UPLOAD_DIR));
 
 if (env.NODE_ENV === 'development') {
     app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(specs));
