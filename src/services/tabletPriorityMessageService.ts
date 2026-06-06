@@ -29,6 +29,7 @@ export interface TabletPriorityMessage {
     template: PriorityMessageTemplate | null;
     updatedAt: Date | null;
     updatedBy: string | null;
+    priority: number | null;
 }
 
 export type PriorityMessageScheduleTargetType = 'devices' | 'faculty';
@@ -94,6 +95,7 @@ interface PriorityMessageAssignmentRow extends PriorityMessageTemplateRow {
     active: boolean;
     assignment_updated_at: Date | null;
     updated_by: string | null;
+    priority: number | null;
 }
 
 interface PriorityMessageScheduleRow extends PriorityMessageTemplateRow {
@@ -135,7 +137,8 @@ export const DEFAULT_TABLET_PRIORITY_MESSAGE: TabletPriorityMessage = {
     enabled: false,
     template: null,
     updatedAt: null,
-    updatedBy: null
+    updatedBy: null,
+    priority: null
 };
 
 const BUILTIN_PRIORITY_MESSAGE_TEMPLATES: Array<{
@@ -175,7 +178,8 @@ const mapAssignmentRow = (row: PriorityMessageAssignmentRow): TabletPriorityMess
     enabled: row.active,
     template: row.active ? mapTemplateRow(row) : null,
     updatedAt: row.assignment_updated_at,
-    updatedBy: row.updated_by
+    updatedBy: row.updated_by,
+    priority: row.active ? row.priority : null
 });
 
 const normalizeTemplateId = (value: string) =>
@@ -566,6 +570,7 @@ export const getPriorityMessagesForDeviceIds = async (
                 a.active,
                 a.updated_at AS assignment_updated_at,
                 a.updated_by,
+                a.priority,
                 t.id,
                 t.name,
                 t.image_url,
