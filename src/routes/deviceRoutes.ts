@@ -45,6 +45,14 @@ router.post('/priority-messages/upload', DeviceListController.uploadPriorityMess
 router.post('/priority-messages/templates', DeviceListController.createPriorityMessageTemplate);
 router.patch('/priority-messages/templates/:templateId', DeviceListController.updatePriorityMessageTemplate);
 router.delete('/priority-messages/templates/:templateId', DeviceListController.deletePriorityMessageTemplate);
+router.get('/priority-messages/schedules', DeviceListController.getPriorityMessageSchedules);
+router.post('/priority-messages/schedules', DeviceListController.createPriorityMessageSchedule);
+router.patch('/priority-messages/schedules/:scheduleId', DeviceListController.updatePriorityMessageSchedule);
+router.delete('/priority-messages/schedules/:scheduleId', DeviceListController.deletePriorityMessageSchedule);
+router.get('/priority-messages/presets', DeviceListController.getPriorityMessagePresets);
+router.post('/priority-messages/presets', DeviceListController.createPriorityMessagePreset);
+router.patch('/priority-messages/presets/:presetId', DeviceListController.updatePriorityMessagePreset);
+router.delete('/priority-messages/presets/:presetId', DeviceListController.deletePriorityMessagePreset);
 router.post('/priority-messages/activate', DeviceListController.activatePriorityMessage);
 router.post('/priority-messages/clear', DeviceListController.clearPriorityMessage);
 router.patch('/display-settings/batch', DeviceListController.batchUpdateDeviceDisplaySettings);

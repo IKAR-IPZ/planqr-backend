@@ -19,6 +19,7 @@ import fs from "fs";
 import path from "path";
 import { applyBasicSecurityHeaders } from "./middlewares/securityMiddleware";
 import { startLdapUserSyncJob } from "./jobs/ldapUserSyncJob";
+import { startPriorityMessageScheduleJob } from "./jobs/priorityMessageScheduleJob";
 
 
 const app = express();
@@ -104,6 +105,7 @@ const startCleanupJob = () => {
 
 startCleanupJob();
 startLdapUserSyncJob();
+startPriorityMessageScheduleJob();
 
 
 
