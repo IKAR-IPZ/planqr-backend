@@ -1,56 +1,86 @@
-import axios from 'axios';
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { DeviceList, Message, PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middlewares/authMiddleware';
-import { env } from '../config/env';
+import { sendTabletCommandToDevice } from '../services/tabletStreamService';
 
 const prisma = new PrismaClient();
-const ROOM_SEARCH_URL = env.ZUT_SCHEDULE_STUDENT_URL.replace(
-    /schedule_student\.php$/i,
-    'schedule.php'
-);
 
 const sanitizeRoomValue = (value: string) => value.trim().replace(/\s+/g, ' ');
-const normalizeRoomValue = (value: string) => sanitizeRoomValue(value).toUpperCase();
 const MAX_MESSAGE_BODY_LENGTH = 2000;
 const MAX_METADATA_TEXT_LENGTH = 120;
-const ROOM_LOOKUP_TIMEOUT_MS = 5000;
 
-const fetchMatchingRooms = async (query: string) => {
-    const response = await axios.get(ROOM_SEARCH_URL, {
-        params: {
-            kind: 'room',
-            query: sanitizeRoomValue(query)
-        },
-        headers: { 'User-Agent': 'Mozilla/5.0' },
-        timeout: ROOM_LOOKUP_TIMEOUT_MS
-    });
+const normalizeRoomKey = (value?: string | null) => sanitizeRoomValue(value ?? '').toLowerCase();
 
-    const data = response.data;
-    return Array.isArray(data)
-        ? Array.from(
-            new Set(
-                data
-                    .filter((item: { item?: unknown }) => typeof item?.item === 'string')
-                    .map((item: { item: string }) => sanitizeRoomValue(item.item))
-                    .filter(Boolean)
-            )
-        )
-        : [];
+const getRoomLabelKey = (value?: string | null) => {
+    const normalized = normalizeRoomKey(value);
+    const separatorIndex = normalized.indexOf(' ');
+    return separatorIndex === -1 ? normalized : normalized.slice(separatorIndex + 1).trim();
 };
 
-const isValidRoom = async (roomName: string) => {
-    const normalizedRoom = normalizeRoomValue(roomName);
-    if (!normalizedRoom) {
+const messageMatchesDeviceRoom = (messageRoom: string, deviceRoom?: string | null) => {
+    const messageRoomKey = normalizeRoomKey(messageRoom);
+    const deviceRoomKey = normalizeRoomKey(deviceRoom);
+
+    if (!messageRoomKey || !deviceRoomKey) {
         return false;
     }
 
+    return (
+        messageRoomKey === deviceRoomKey ||
+        messageRoomKey === getRoomLabelKey(deviceRoom) ||
+        getRoomLabelKey(messageRoom) === deviceRoomKey
+    );
+};
+
+const notifyTabletsAboutMessageChange = async (
+    message: Pick<Message, 'lessonId' | 'room' | 'newRoom'>,
+    action: 'created' | 'updated' | 'deleted'
+) => {
+    const roomsToNotify = Array.from(
+        new Set(
+            [message.room, message.newRoom]
+                .map((room) => sanitizeRoomValue(room ?? ''))
+                .filter(Boolean)
+        )
+    );
+
+    if (roomsToNotify.length === 0) {
+        return;
+    }
+
     try {
-        const rooms = await fetchMatchingRooms(roomName);
-        return rooms.some((room) => normalizeRoomValue(room) === normalizedRoom);
+        const devices = await prisma.deviceList.findMany({
+            where: {
+                status: 'ACTIVE',
+                deviceClassroom: {
+                    not: null
+                }
+            }
+        });
+
+        const matchingDevices = devices.filter((device: DeviceList) =>
+            roomsToNotify.some((room) => messageMatchesDeviceRoom(room, device.deviceClassroom))
+        );
+
+        let delivered = 0;
+        for (const device of matchingDevices) {
+            delivered += sendTabletCommandToDevice(device.deviceId, {
+                type: 'messages-updated',
+                issuedAt: new Date().toISOString(),
+                reason: `message-${action}`,
+                room: device.deviceClassroom,
+                lessonId: message.lessonId
+            });
+        }
+
+        if (matchingDevices.length > 0) {
+            console.info(
+                `[Messages] Notified ${delivered}/${matchingDevices.length} tablet stream(s) ` +
+                `about ${action} message for lesson ${message.lessonId}.`
+            );
+        }
     } catch (error) {
-        console.error('Failed to validate room for message update:', error);
-        return false;
+        console.error('[Messages] Failed to notify tablets about message change:', error);
     }
 };
 
@@ -111,6 +141,7 @@ export class MessageController {
                 } as any
             });
             console.log(`Received message from ${req.user.login} for lesson ${parsedLessonId}`);
+            await notifyTabletsAboutMessageChange(message, 'created');
             // Return the created message
             res.status(200).json(message);
         } catch (e) {
@@ -199,12 +230,6 @@ export class MessageController {
                     return;
                 }
 
-                const roomExists = await isValidRoom(nextRoom);
-                if (!roomExists) {
-                    res.status(400).json({ message: 'Selected room does not exist in schedule data' });
-                    return;
-                }
-
                 const updatedMessage = await prisma.message.update({
                     where: { id },
                     data: {
@@ -213,6 +238,7 @@ export class MessageController {
                     },
                 });
 
+                await notifyTabletsAboutMessageChange(updatedMessage, 'updated');
                 res.status(200).json(updatedMessage);
                 return;
             }
@@ -227,6 +253,7 @@ export class MessageController {
                 data: { body: nextBody },
             });
 
+            await notifyTabletsAboutMessageChange(updatedMessage, 'updated');
             res.status(200).json(updatedMessage);
         } catch (e) {
             console.error(e);
@@ -255,6 +282,7 @@ export class MessageController {
             }
 
             await prisma.message.delete({ where: { id } });
+            await notifyTabletsAboutMessageChange(existingMessage, 'deleted');
             res.sendStatus(204);
         } catch (e) {
             res.sendStatus(404);

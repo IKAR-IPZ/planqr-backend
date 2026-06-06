@@ -41,7 +41,7 @@ router.post('/login', authRateLimiter, AuthController.login);
  *       401:
  *         description: Not logged in
  */
-router.get('/check-login', authRateLimiter, AuthController.checkLogin);
+router.get('/check-login', AuthController.checkLogin);
 
 /**
  * @swagger
@@ -53,6 +53,6 @@ router.get('/check-login', authRateLimiter, AuthController.checkLogin);
  *       200:
  *         description: Logout successful
  */
-router.post('/logout', authRateLimiter, AuthController.logout);
+router.post('/logout', AuthController.logout);
 
 export default router;

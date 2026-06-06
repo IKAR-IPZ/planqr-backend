@@ -58,6 +58,8 @@ model DeviceList {
   screenOrientation String?
   displayProfileReportedAt DateTime?
   priorityMessageAssignment TabletPriorityMessageAssignment?
+  priorityMessageManualAssignment TabletPriorityMessageManualAssignment?
+  priorityMessageScheduleTargets TabletPriorityMessageScheduleTarget[]
 }
 
 model TabletIpBan {
@@ -93,6 +95,9 @@ model TabletPriorityMessageTemplate {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   assignments TabletPriorityMessageAssignment[]
+  manualAssignments TabletPriorityMessageManualAssignment[]
+  schedules TabletPriorityMessageSchedule[]
+  presets TabletPriorityMessagePreset[]
 
   @@map("tablet_priority_message_templates")
 }
@@ -103,11 +108,78 @@ model TabletPriorityMessageAssignment {
   active     Boolean  @default(true)
   updatedAt  DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
   updatedBy  String?  @map("updated_by")
+  scheduleId String?  @map("schedule_id") @db.VarChar(64)
+  priority   Int?
+  sourceMigrated Boolean @default(false) @map("source_migrated")
   device     DeviceList @relation(fields: [deviceId], references: [id], onDelete: Cascade)
   template   TabletPriorityMessageTemplate @relation(fields: [templateId], references: [id])
 
   @@index([active], map: "idx_tablet_priority_message_assignments_active")
   @@map("tablet_priority_message_assignments")
+}
+
+model TabletPriorityMessageManualAssignment {
+  deviceId   Int      @id @map("device_id")
+  templateId String   @map("template_id") @db.VarChar(80)
+  updatedAt  DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy  String?  @map("updated_by")
+  device     DeviceList @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  template   TabletPriorityMessageTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@map("tablet_priority_message_manual_assignments")
+}
+
+model TabletPriorityMessageSchedule {
+  id          String   @id @db.VarChar(64)
+  templateId  String   @map("template_id") @db.VarChar(80)
+  priority    Int
+  targetType  String   @map("target_type") @db.VarChar(16)
+  facultyCode String?  @map("faculty_code") @db.VarChar(32)
+  startsAt    DateTime @map("starts_at") @db.Timestamptz(6)
+  endsAt      DateTime @map("ends_at") @db.Timestamptz(6)
+  createdBy   String?  @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  template    TabletPriorityMessageTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  targets     TabletPriorityMessageScheduleTarget[]
+
+  @@index([startsAt, endsAt], map: "idx_tablet_priority_message_schedules_window")
+  @@index([facultyCode], map: "idx_tablet_priority_message_schedules_faculty")
+  @@map("tablet_priority_message_schedules")
+}
+
+model TabletPriorityMessageScheduleTarget {
+  scheduleId String @map("schedule_id") @db.VarChar(64)
+  deviceId   Int    @map("device_id")
+  schedule   TabletPriorityMessageSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  device     DeviceList @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@id([scheduleId, deviceId])
+  @@index([deviceId], map: "idx_tablet_priority_message_schedule_targets_device")
+  @@map("tablet_priority_message_schedule_targets")
+}
+
+model TabletPriorityMessagePreset {
+  id           String   @id @db.VarChar(64)
+  name         String
+  templateId   String   @map("template_id") @db.VarChar(80)
+  priority     Int
+  durationMode String   @map("duration_mode") @db.VarChar(24)
+  startOffsetDays Int   @default(0) @map("start_offset_days") @db.SmallInt
+  durationDays Int      @default(1) @map("duration_days") @db.SmallInt
+  createdBy    String?  @map("created_by")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  template     TabletPriorityMessageTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@map("tablet_priority_message_presets")
+}
+
+model TabletPriorityMessagePresetSeedState {
+  id       Int      @id @db.SmallInt
+  seededAt DateTime @default(now()) @map("seeded_at") @db.Timestamptz(6)
+
+  @@map("tablet_priority_message_preset_seed_state")
 }
 
 model LdapUser {

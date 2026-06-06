@@ -1,6 +1,9 @@
 import {Request, Response} from 'express';
 import {ZutServices} from "../services/ZutServices";
 import crypto from 'crypto';
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
 
 const MAX_SCHEDULE_ID_LENGTH = 120;
 const ALLOWED_SCHEDULE_KINDS = new Set(['room', 'worker', 'teacher', 'student']);
@@ -42,9 +45,33 @@ export const getPlan = async(req: Request, res: Response) => {
                 id: event.id ?? generateLessonId(event),
             }))
             : data;
+
+        if (Array.isArray(enriched) && enriched.length > 0) {
+            const lessonIds = enriched
+                .map((event: any) => Number(event.id))
+                .filter((id) => !isNaN(id));
+
+            if (lessonIds.length > 0) {
+                const messages = await prisma.message.findMany({
+                    where: {
+                        lessonId: { in: lessonIds },
+                    },
+                    select: {
+                        lessonId: true,
+                    },
+                });
+
+                const msgLessonIds = new Set(messages.map((m) => m.lessonId));
+
+                enriched.forEach((event: any) => {
+                    event.hasNotifications = msgLessonIds.has(Number(event.id));
+                });
+            }
+        }
         
         return res.json(enriched);
     } catch (error) {
+        console.error('Error fetching plan:', error);
         return res.status(500).json({error: 'Wystąpił błąd podczas pobierania planu'});
     }
 }

@@ -85,7 +85,7 @@ export const requireLecturerAccess = async (req: AuthRequest, res: Response, nex
             return;
         }
 
-        if (!user.canAccessLecturerPlan) {
+        if (!user.canAccessLecturerPlan && !user.isAdmin) {
             res.status(403).json({ message: 'Lecturer access required' });
             return;
         }

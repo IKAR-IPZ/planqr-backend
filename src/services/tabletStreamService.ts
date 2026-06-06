@@ -14,11 +14,19 @@ export interface TabletDeviceConfig {
 }
 
 export interface TabletCommand {
-    type: 'connected' | 'config-updated' | 'reload' | 'registry-reset' | 'report-display-profile';
+    type:
+        | 'connected'
+        | 'config-updated'
+        | 'reload'
+        | 'registry-reset'
+        | 'report-display-profile'
+        | 'messages-updated';
     issuedAt: string;
     hardReload?: boolean;
     reason?: string;
     path?: string;
+    room?: string | null;
+    lessonId?: number | null;
     config?: TabletDeviceConfig | null;
 }
 
