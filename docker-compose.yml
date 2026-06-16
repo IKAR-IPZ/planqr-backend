@@ -23,6 +23,8 @@ services:
     environment:
       PORT: "${PORT}"
       DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/planqr_db?schema=public"
+      ROOT_ADMIN_LOGIN: "${ROOT_ADMIN_LOGIN:-}"
+      ROOT_ADMIN_PASSWORD: "${ROOT_ADMIN_PASSWORD:-}"
       LDAP_URL: "${LDAP_URL}"
       LDAP_DN: "${LDAP_DN}"
       LDAP_SYNC_ENABLED: "${LDAP_SYNC_ENABLED:-false}"

@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import { isRootAdminLogin } from './rootAdminService';
 
 const prisma = new PrismaClient();
 let hasLoggedAdminLookupError = false;
@@ -12,6 +13,7 @@ export interface IdentityClaims extends AccessSignals {
     givenName?: string;
     surname?: string;
     devAuthBypass?: boolean;
+    rootAdmin?: boolean;
     displayNameOverride?: string;
 }
 
@@ -83,12 +85,21 @@ const buildDevBypassAccessProfile = (): AccessProfile => ({
     canAccessLecturerPlan: true,
 });
 
+const buildRootAdminAccessProfile = (): AccessProfile => ({
+    roles: ['admin'],
+    isAdmin: true,
+    canAccessLecturerPlan: true,
+});
+
 export const buildAuthenticatedUser = async (
     identity: IdentityClaims
 ): Promise<AuthenticatedUser> => {
-    const access = identity.devAuthBypass
-        ? buildDevBypassAccessProfile()
-        : await resolveAccessProfile(identity.sub, identity);
+    const access =
+        identity.rootAdmin && isRootAdminLogin(identity.sub)
+            ? buildRootAdminAccessProfile()
+            : identity.devAuthBypass
+              ? buildDevBypassAccessProfile()
+              : await resolveAccessProfile(identity.sub, identity);
 
     return {
         ...identity,

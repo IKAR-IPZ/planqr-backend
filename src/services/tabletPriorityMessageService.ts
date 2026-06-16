@@ -141,29 +141,6 @@ export const DEFAULT_TABLET_PRIORITY_MESSAGE: TabletPriorityMessage = {
     priority: null
 };
 
-const BUILTIN_PRIORITY_MESSAGE_TEMPLATES: Array<{
-    id: string;
-    name: string;
-    imageUrl: string;
-    mediaType: PriorityMessageMediaType;
-    sortOrder: number;
-}> = [
-    {
-        id: 'evac',
-        name: 'EVAC.gif',
-        imageUrl: '/priority-messages/EVAC.gif',
-        mediaType: 'gif',
-        sortOrder: 10
-    },
-    {
-        id: 'dzien_rektorski',
-        name: 'dzien_rektorski.jpg',
-        imageUrl: '/priority-messages/dzien_rektorski.jpg',
-        mediaType: 'image',
-        sortOrder: 20
-    }
-];
-
 const mapTemplateRow = (row: PriorityMessageTemplateRow): PriorityMessageTemplate => ({
     id: row.id,
     name: row.name,
@@ -333,65 +310,6 @@ export const ensurePriorityMessageTables = async (prisma: PrismaClient) => {
         ON ${PRIORITY_MESSAGE_SCHEDULE_TARGETS_TABLE}(device_id)
     `);
 
-    for (const template of BUILTIN_PRIORITY_MESSAGE_TEMPLATES) {
-        await prisma.$executeRawUnsafe(
-            `
-                INSERT INTO ${PRIORITY_MESSAGE_TEMPLATES_TABLE} (
-                    id,
-                    name,
-                    image_url,
-                    media_type,
-                    is_builtin,
-                    sort_order,
-                    created_at,
-                    updated_at
-                )
-                VALUES ($1, $2, $3, $4, TRUE, $5, NOW(), NOW())
-                ON CONFLICT (id) DO UPDATE SET
-                    name = EXCLUDED.name,
-                    image_url = EXCLUDED.image_url,
-                    media_type = EXCLUDED.media_type,
-                    is_builtin = TRUE,
-                    sort_order = EXCLUDED.sort_order,
-                    updated_at = NOW()
-            `,
-            template.id,
-            template.name,
-            template.imageUrl,
-            template.mediaType,
-            template.sortOrder
-        );
-    }
-
-    const seedRows = await prisma.$queryRawUnsafe<Array<{ id: number }>>(`
-        SELECT id
-        FROM ${PRIORITY_MESSAGE_PRESET_SEED_STATE_TABLE}
-        WHERE id = 1
-    `);
-    if (seedRows.length === 0) {
-        await prisma.$executeRawUnsafe(`
-            INSERT INTO ${PRIORITY_MESSAGE_PRESETS_TABLE} (
-                id,
-                name,
-                template_id,
-                priority,
-                duration_mode,
-                start_offset_days,
-                duration_days,
-                created_at,
-                updated_at
-            )
-            VALUES
-                ('preset-evacuation', 'Ewakuacja', 'evac', 10, 'end_of_day', 0, 1, NOW(), NOW()),
-                ('preset-rectors-day', 'Dzień rektorski', 'dzien_rektorski', 7, 'tomorrow', 0, 1, NOW(), NOW())
-            ON CONFLICT (id) DO NOTHING
-        `);
-        await prisma.$executeRawUnsafe(`
-            INSERT INTO ${PRIORITY_MESSAGE_PRESET_SEED_STATE_TABLE} (id, seeded_at)
-            VALUES (1, NOW())
-            ON CONFLICT (id) DO NOTHING
-        `);
-    }
 };
 
 export const listPriorityMessageTemplates = async (

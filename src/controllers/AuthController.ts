@@ -9,6 +9,7 @@ import {
 } from '../services/authAccessService';
 import { createAccessToken, decodeIdentityClaimsFromToken } from '../services/authTokenService';
 import { upsertAuthenticatedLdapUser } from '../services/ldapUserCacheService';
+import { getRootAdminLogin, isRootAdminLogin, verifyRootAdminCredentials } from '../services/rootAdminService';
 
 const ldapService = new LdapService();
 
@@ -58,6 +59,34 @@ export class AuthController {
 
             if (!username) {
                 return res.status(400).json({ message: 'Invalid request' });
+            }
+
+            if (isRootAdminLogin(username)) {
+                if (!verifyRootAdminCredentials(username, password)) {
+                    const loginError = AuthController.buildLoginErrorResponse('invalid_credentials');
+                    return res.status(loginError.status).json(loginError.body);
+                }
+
+                const rootAdminLogin = getRootAdminLogin() ?? username;
+                const identity: IdentityClaims = {
+                    sub: rootAdminLogin,
+                    givenName: '',
+                    surname: '',
+                    title: 'admin',
+                    rootAdmin: true,
+                    displayNameOverride: rootAdminLogin,
+                };
+
+                const user = await buildAuthenticatedUser(identity);
+                const token = createAccessToken(identity);
+
+                res.cookie('jwt', token, {
+                    httpOnly: true,
+                    secure: env.NODE_ENV === 'production',
+                    sameSite: env.NODE_ENV === 'production' ? 'strict' : 'lax'
+                });
+
+                return res.status(200).json(toSessionResponse(user, 'Login successful'));
             }
 
             if (env.DEV_AUTH_BYPASS) {

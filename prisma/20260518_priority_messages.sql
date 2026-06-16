@@ -19,24 +19,3 @@ CREATE TABLE IF NOT EXISTS tablet_priority_message_assignments (
 
 CREATE INDEX IF NOT EXISTS idx_tablet_priority_message_assignments_active
     ON tablet_priority_message_assignments(active);
-
-INSERT INTO tablet_priority_message_templates (
-    id,
-    name,
-    image_url,
-    media_type,
-    is_builtin,
-    sort_order,
-    created_at,
-    updated_at
-)
-VALUES
-    ('evac', 'EVAC.gif', '/priority-messages/EVAC.gif', 'gif', TRUE, 10, NOW(), NOW()),
-    ('dzien_rektorski', 'dzien_rektorski.jpg', '/priority-messages/dzien_rektorski.jpg', 'image', TRUE, 20, NOW(), NOW())
-ON CONFLICT (id) DO UPDATE SET
-    name = EXCLUDED.name,
-    image_url = EXCLUDED.image_url,
-    media_type = EXCLUDED.media_type,
-    is_builtin = TRUE,
-    sort_order = EXCLUDED.sort_order,
-    updated_at = NOW();

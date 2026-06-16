@@ -30,6 +30,9 @@ export class LdapDirectoryService {
         );
 
         if (!normalizedUsernames.length || !this.isConfigured()) {
+            console.log(
+                `[LDAP Directory] Skipping known-user lookup. configured=${this.isConfigured()}, requested=${normalizedUsernames.length}.`
+            );
             return new Map();
         }
 
@@ -44,6 +47,9 @@ export class LdapDirectoryService {
 
             const users = new Map<string, LdapDirectoryUser>();
             const batchSize = env.LDAP_SYNC_BATCH_SIZE;
+            console.log(
+                `[LDAP Directory] Starting known-user lookup. baseDn="${this.getSearchBaseDn()}", requested=${normalizedUsernames.length}, batchSize=${batchSize}.`
+            );
 
             for (let index = 0; index < normalizedUsernames.length; index += batchSize) {
                 const batch = normalizedUsernames.slice(index, index + batchSize);
@@ -54,6 +60,9 @@ export class LdapDirectoryService {
                 }
             }
 
+            console.log(
+                `[LDAP Directory] Finished known-user lookup. requested=${normalizedUsernames.length}, found=${users.size}.`
+            );
             return users;
         } finally {
             this.closeClient(client);
@@ -73,6 +82,9 @@ export class LdapDirectoryService {
 
         try {
             await this.bind(client);
+            console.log(
+                `[LDAP Directory] Starting full lookup. baseDn="${this.getSearchBaseDn()}", filter="${env.LDAP_SYNC_FULL_FILTER}", pageSize=${env.LDAP_SYNC_FULL_PAGE_SIZE}, userLimit=${env.LDAP_SYNC_FULL_USER_LIMIT}.`
+            );
             return Array.from((await this.searchAll(client)).values());
         } finally {
             this.closeClient(client);

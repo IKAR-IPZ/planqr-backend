@@ -26,6 +26,14 @@ const envSchema = z.object({
     CORS_ORIGIN: z.string().min(1, "CORS_ORIGIN is required"),
     DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
     JWT_SECRET: z.string().min(1, "JWT_SECRET is required"),
+    ROOT_ADMIN_LOGIN: z.preprocess(
+        (value) => typeof value === "string" && value.trim() === "" ? undefined : value,
+        z.string().trim().min(1).optional()
+    ),
+    ROOT_ADMIN_PASSWORD: z.preprocess(
+        (value) => value === "" ? undefined : value,
+        z.string().min(1).optional()
+    ),
     LDAP_URL: z.string().min(1, "LDAP_URL is required"),
     LDAP_DN: z.string().min(1, "LDAP_DN is required"),
     LDAP_SYNC_ENABLED: z
@@ -51,6 +59,19 @@ const envSchema = z.object({
             code: z.ZodIssueCode.custom,
             path: ["DEV_AUTH_BYPASS"],
             message: "DEV_AUTH_BYPASS can only be enabled when NODE_ENV=development",
+        });
+    }
+
+    if (Boolean(value.ROOT_ADMIN_LOGIN) !== Boolean(value.ROOT_ADMIN_PASSWORD)) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["ROOT_ADMIN_LOGIN"],
+            message: "ROOT_ADMIN_LOGIN and ROOT_ADMIN_PASSWORD must be configured together",
+        });
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["ROOT_ADMIN_PASSWORD"],
+            message: "ROOT_ADMIN_LOGIN and ROOT_ADMIN_PASSWORD must be configured together",
         });
     }
 });

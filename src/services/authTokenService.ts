@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken';
 import { env } from '../config/env';
 import { type IdentityClaims } from './authAccessService';
+import { isRootAdminEnabled, isRootAdminLogin } from './rootAdminService';
 
 const ISSUER = 'PlanQR_Issuer';
 const AUDIENCE = 'PlanQR_Audience';
@@ -13,6 +14,7 @@ type AccessTokenPayload = jwt.JwtPayload & {
     title?: unknown;
     planqrAccessVersion?: unknown;
     devAuthBypass?: unknown;
+    rootAdmin?: unknown;
     displayNameOverride?: unknown;
 };
 
@@ -24,6 +26,7 @@ export const createAccessToken = (identity: IdentityClaims) =>
             surname: identity.surname ?? '',
             title: identity.title ?? '',
             devAuthBypass: identity.devAuthBypass === true,
+            rootAdmin: identity.rootAdmin === true,
             displayNameOverride: identity.displayNameOverride,
             planqrAccessVersion: ACCESS_TOKEN_VERSION,
             jti: Date.now().toString(),
@@ -54,12 +57,18 @@ export const decodeIdentityClaimsFromToken = (token: string): IdentityClaims | n
             return null;
         }
 
+        const rootAdmin = payload.rootAdmin === true;
+        if (rootAdmin && (!isRootAdminEnabled() || !isRootAdminLogin(payload.sub))) {
+            return null;
+        }
+
         return {
             sub: payload.sub,
             givenName: typeof payload.givenName === 'string' ? payload.givenName : '',
             surname: typeof payload.surname === 'string' ? payload.surname : '',
             title: typeof payload.title === 'string' ? payload.title : '',
             devAuthBypass,
+            rootAdmin,
             displayNameOverride:
                 typeof payload.displayNameOverride === 'string' ? payload.displayNameOverride : undefined,
         };

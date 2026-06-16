@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import { PrismaClient } from '@prisma/client';
 import { Response } from 'express';
 import { AuthRequest } from '../middlewares/authMiddleware';
+import { getRootAdminLogin, isRootAdminLogin } from '../services/rootAdminService';
 
 const prisma = new PrismaClient();
 const LDAP_LOGIN_PATTERN = /^[a-z0-9._-]{3,64}$/i;
@@ -10,21 +11,40 @@ interface AdminRecord {
     id: string;
     username: string;
     adminSource: string;
-    createdAt: Date;
-    updatedAt: Date;
+    createdAt: Date | null;
+    updatedAt: Date | null;
 }
 
 const normalizeUsername = (value: string) => value.trim().toLowerCase();
 
-const toAdminResponse = (admin: AdminRecord, currentLogin?: string) => ({
-    id: admin.id,
-    username: admin.username,
-    adminSource: admin.adminSource,
-    createdAt: admin.createdAt,
-    updatedAt: admin.updatedAt,
-    isCurrentUser: currentLogin === admin.username,
-    canBeRemovedFromPanel: admin.adminSource === 'panel' && currentLogin !== admin.username
-});
+const toAdminResponse = (admin: AdminRecord, currentLogin?: string) => {
+    const normalizedCurrentLogin = currentLogin ? normalizeUsername(currentLogin) : undefined;
+
+    return {
+        id: admin.id,
+        username: admin.username,
+        adminSource: admin.adminSource,
+        createdAt: admin.createdAt,
+        updatedAt: admin.updatedAt,
+        isCurrentUser: normalizedCurrentLogin === admin.username,
+        canBeRemovedFromPanel: !isRootAdminLogin(admin.username) && normalizedCurrentLogin !== admin.username
+    };
+};
+
+const buildRootAdminRecord = (): AdminRecord | null => {
+    const rootAdminLogin = getRootAdminLogin();
+    if (!rootAdminLogin) {
+        return null;
+    }
+
+    return {
+        id: `env:${rootAdminLogin}`,
+        username: rootAdminLogin,
+        adminSource: 'env',
+        createdAt: null,
+        updatedAt: null,
+    };
+};
 
 export class AdminController {
     static async listAdmins(req: AuthRequest, res: Response) {
@@ -34,9 +54,13 @@ export class AdminController {
                 FROM "admins"
                 ORDER BY "username" ASC
             `;
+            const rootAdmin = buildRootAdminRecord();
+            const mergedAdmins = rootAdmin && !admins.some((admin) => isRootAdminLogin(admin.username))
+                ? [rootAdmin, ...admins]
+                : admins.map((admin) => isRootAdminLogin(admin.username) ? { ...admin, adminSource: 'env' } : admin);
 
             res.json({
-                admins: admins.map((admin) => toAdminResponse(admin, req.user?.login))
+                admins: mergedAdmins.map((admin) => toAdminResponse(admin, req.user?.login))
             });
         } catch (error) {
             console.error('Error listing admins:', error);
@@ -56,6 +80,15 @@ export class AdminController {
 
         if (!LDAP_LOGIN_PATTERN.test(username)) {
             res.status(400).json({ message: 'Login ma nieprawidłowy format.' });
+            return;
+        }
+
+        if (isRootAdminLogin(username)) {
+            const rootAdmin = buildRootAdminRecord();
+            res.status(200).json({
+                message: 'To konto jest już administratorem.',
+                admin: rootAdmin ? toAdminResponse(rootAdmin, req.user?.login) : null
+            });
             return;
         }
 
@@ -99,6 +132,11 @@ export class AdminController {
             return;
         }
 
+        if (isRootAdminLogin(username)) {
+            res.status(409).json({ message: 'Konto administratora z konfiguracji środowiska nie może zostać usunięte z panelu.' });
+            return;
+        }
+
         try {
             const [admin] = await prisma.$queryRaw<AdminRecord[]>`
                 SELECT "id", "username", "adminSource", "createdAt", "updatedAt"
@@ -112,12 +150,7 @@ export class AdminController {
                 return;
             }
 
-            if (admin.adminSource !== 'panel') {
-                res.status(409).json({ message: 'Administrator dodany z bazy danych może zostać usunięty tylko bezpośrednio w bazie danych.' });
-                return;
-            }
-
-            if (req.user?.login === username) {
+            if (req.user?.login && normalizeUsername(req.user.login) === username) {
                 res.status(409).json({ message: 'Nie możesz usunąć własnego konta administratora z poziomu panelu.' });
                 return;
             }
@@ -127,8 +160,9 @@ export class AdminController {
                 FROM "admins"
             `;
             const adminCount = adminCountRow?.count ?? 0;
+            const totalAdminCount = adminCount + (getRootAdminLogin() ? 1 : 0);
 
-            if (adminCount <= 1) {
+            if (totalAdminCount <= 1) {
                 res.status(409).json({ message: 'Nie można usunąć ostatniego administratora.' });
                 return;
             }

@@ -49,6 +49,8 @@ Backend wymaga tych zmiennych:
 | `CORS_ORIGIN` | tak | lista originów oddzielona przecinkami albo `*` |
 | `DATABASE_URL` | tak | connection string PostgreSQL |
 | `JWT_SECRET` | tak | sekret JWT |
+| `ROOT_ADMIN_LOGIN` | opcjonalnie | login specjalnego administratora z env; wymagany razem z `ROOT_ADMIN_PASSWORD` |
+| `ROOT_ADMIN_PASSWORD` | opcjonalnie | hasło specjalnego administratora z env; wymagane razem z `ROOT_ADMIN_LOGIN` |
 | `LDAP_URL` | tak | adres serwera LDAP |
 | `LDAP_DN` | tak | wzorzec DN z `%s` dla loginu |
 | `ZUT_SCHEDULE_STUDENT_URL` | tak | źródłowy endpoint planu zajęć używany przez backend |
@@ -94,6 +96,8 @@ BACKEND_PUBLIC_URL=http://localhost:9099
 CORS_ORIGIN=https://localhost:3000,http://localhost:3000,https://localhost
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/planqr_db?schema=public
 JWT_SECRET=change-me
+ROOT_ADMIN_LOGIN=
+ROOT_ADMIN_PASSWORD=
 LDAP_URL=ldap://ldap.zut.edu.pl
 LDAP_DN=uid=%s,cn=users,cn=accounts,dc=zut,dc=edu,dc=pl
 ZUT_SCHEDULE_STUDENT_URL=https://plan.zut.edu.pl/schedule_student.php
@@ -121,6 +125,8 @@ LDAP_SYNC_FULL_USER_LIMIT=0
 ```
 
 Synchronizacja LDAP robi anonymous bind, bez usera i hasła.
+
+Konto env-admina z `ROOT_ADMIN_LOGIN` / `ROOT_ADMIN_PASSWORD` omija LDAP, zawsze dostaje rolę administratora i jest widoczne w panelu jako konto z `.env`. Tego konta nie da się usunąć z panelu administratora.
 
 ## Baza danych
 
@@ -299,6 +305,8 @@ BACKEND_PUBLIC_URL=http://localhost:9099
 CORS_ORIGIN=https://localhost
 DATABASE_URL=postgresql://postgres:postgres@db-host:5432/planqr_db?schema=public
 JWT_SECRET=change-me
+ROOT_ADMIN_LOGIN=
+ROOT_ADMIN_PASSWORD=
 LDAP_URL=ldap://ldap.zut.edu.pl
 LDAP_DN=uid=%s,cn=users,cn=accounts,dc=zut,dc=edu,dc=pl
 LDAP_SYNC_ENABLED=false
