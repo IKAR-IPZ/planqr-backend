@@ -65,7 +65,7 @@ const NIGHT_MODE_TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
 const PENDING_DEVICE_CODE_PATTERN = /^\d{6}$/;
 const PRIORITY_MESSAGE_UPLOAD_DIR = path.resolve(process.cwd(), 'uploads', 'priority-messages');
 const PRIORITY_MESSAGE_UPLOAD_URL_PREFIX = '/priority-message-uploads';
-const PRIORITY_MESSAGE_UPLOAD_MAX_BYTES = 8 * 1024 * 1024;
+const PRIORITY_MESSAGE_UPLOAD_MAX_BYTES = 50 * 1024 * 1024;
 const ALLOWED_PRIORITY_MESSAGE_MIME_TYPES = new Set([
     'image/gif',
     'image/jpeg',
@@ -269,7 +269,7 @@ const parsePriorityMessageUploadPayload = (
 
     const buffer = Buffer.from(contentBase64, 'base64');
     if (buffer.length === 0 || buffer.length > PRIORITY_MESSAGE_UPLOAD_MAX_BYTES) {
-        return { error: 'Plik musi mieć od 1 B do 8 MB.' };
+        return { error: 'Plik musi mieć od 1 B do 50 MB.' };
     }
 
     return {

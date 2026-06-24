@@ -4,4 +4,8 @@ dist
 *.log
 /certs/*
 !/certs/.gitkeep
+/uploads/*
+!/uploads/priority-messages/
+/uploads/priority-messages/*
+!/uploads/priority-messages/.gitkeep
 .env

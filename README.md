@@ -10,6 +10,25 @@ Serwis:
 - czyta konfigurację ze wspólnego pliku `../.env`
 - może działać lokalnie przez `npm`, jako osobny kontener albo razem z frontendem przez rootowy `docker compose`
 
+## Pliki komunikatów priorytetowych
+
+Obrazki dodawane w galerii administratora są zapisywane na hoście w:
+
+```text
+planqr-backend/uploads/priority-messages
+```
+
+W kontenerze backendu katalog jest dostępny jako:
+
+```text
+/app/uploads/priority-messages
+```
+
+Konfiguracje Docker Compose podpinają `uploads` jako bind mount, dzięki czemu
+pliki pozostają na hoście po restarcie lub odtworzeniu kontenera. Maksymalny
+rozmiar pojedynczego pliku wynosi 50 MB. Obsługiwane formaty to GIF, JPG, PNG
+i WebP.
+
 ## Gdzie backend bierze konfigurację
 
 Backend ładuje zmienne środowiskowe w tej kolejności:

@@ -40,6 +40,7 @@ services:
       WORKER_SECRET_TOKEN: "${WORKER_SECRET_TOKEN:-}"
     volumes:
       - /home/user/planqr-secrets/certs:/app/certs:ro
+      - ./uploads:/app/uploads
     depends_on:
       postgres:
         condition: service_healthy

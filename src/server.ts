@@ -37,7 +37,7 @@ app.use(cors({
     credentials: true // Important for cookies!
 }));
 app.use(applyBasicSecurityHeaders);
-app.use('/api/devices/priority-messages/upload', express.json({ limit: '12mb' }));
+app.use('/api/devices/priority-messages/upload', express.json({ limit: '70mb' }));
 app.use(express.json({ limit: '32kb' }));
 app.use(cookieParser());
 app.use('/priority-message-uploads', express.static(PRIORITY_MESSAGE_UPLOAD_DIR));
